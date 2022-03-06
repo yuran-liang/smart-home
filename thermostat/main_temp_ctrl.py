@@ -39,42 +39,48 @@ def connect_mqtt() -> mqtt_client:
 
 
 def subscribe(client: mqtt_client):
-    def on_message(client, userdata, msg):    
-        payload = subprocess.check_output(["/home/pi/eQ-3-radiator-thermostat/eq3.exp", "00:1A:22:16:D0:FA", "sync"])
-        payload_bt = []
-        for word in payload.decode('utf-8').split('\n'):
-            payload_bt.append(word)
-
-                            
-        temp = float(re.findall("\d+\.\d+", payload_bt[1])[0])
-        valve = float(re.findall("\d+", payload_bt[2])[0])
-        temp_meas = float(msg.payload.decode())
-        
+    def on_message(client, userdata, msg):
         try:
-            with open(config_files, 'r') as f:
-                data = json.load(f)
-                temp_desire = data['temperature']            
+            payload = subprocess.check_output(["/home/pi/eQ-3-radiator-thermostat/eq3.exp", "00:1A:22:16:D0:FA", "sync"])
+            payload_bt = []
+            for word in payload.decode('utf-8').split('\n'):
+                payload_bt.append(word)
+    
+                                
+            temp = float(re.findall("\d+\.\d+", payload_bt[1])[0])
+            valve = float(re.findall("\d+", payload_bt[2])[0])
+            temp_meas = float(msg.payload.decode())
+            
+            if temp_meas <5:
+                return
+            
+            try:
+                with open(config_files, 'r') as f:
+                    data = json.load(f)
+                    temp_desire = data['temperature']            
+            except:
+              temp_desire = copy.deepcopy(temp_default)
+                      
+            delta_temp = temp_desire - temp_meas
+            
+            if abs(delta_temp) > 1:
+                temp_ctrl = temp + K_p*delta_temp
+    
+                temp_ctrl = min([temp_ctrl, 30])
+                temp_ctrl = max([temp_ctrl, 5])
+    
+                if temp_ctrl > round(temp_ctrl):
+                    temp_ctrl = round(temp_ctrl)+0.5
+                else:
+                    temp_ctrl = round(temp_ctrl)
+    
+    
+                if (valve < 100 and delta_temp > 0) or delta_temp < 0:
+                    
+                    list_files = subprocess.run(["/home/pi/eQ-3-radiator-thermostat/eq3.exp", "00:1A:22:16:D0:FA", "temp", str(temp_ctrl)])       
         except:
-          temp_desire = copy.deepcopy(temp_default)
-                  
-        delta_temp = temp_desire - temp_meas
-        
-        if abs(delta_temp) > 1:
-            temp_ctrl = temp + K_p*delta_temp
-
-            temp_ctrl = min([temp_ctrl, 30])
-            temp_ctrl = max([temp_ctrl, 5])
-
-            if temp_ctrl > round(temp_ctrl):
-                temp_ctrl = round(temp_ctrl)+0.5
-            else:
-                temp_ctrl = round(temp_ctrl)
-
-
-            if (valve < 100 and delta_temp > 0) or delta_temp < 0:
-                
-                list_files = subprocess.run(["/home/pi/eQ-3-radiator-thermostat/eq3.exp", "00:1A:22:16:D0:FA", "temp", str(temp_ctrl)])       
-
+            print("An exception occurred")
+            
     client.subscribe(topic)
     client.on_message = on_message
 
