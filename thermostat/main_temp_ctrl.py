@@ -48,8 +48,8 @@ def subscribe(client: mqtt_client):
                 payload_bt.append(word)
     
                                 
-            temp = float(re.findall("\d+\.\d+", payload_bt[1])[0])
-            valve = float(re.findall("\d+", payload_bt[2])[0])
+            temp = float(re.findall(r"\d+\.\d+", payload_bt[1])[0])
+            valve = float(re.findall(r"\d+", payload_bt[2])[0])
             temp_meas = float(msg.payload.decode())
             
             if temp_meas <5:
