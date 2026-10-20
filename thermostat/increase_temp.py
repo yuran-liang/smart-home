@@ -10,8 +10,9 @@ Created on Wed Dec 22 17:35:08 2021
  
  
 import json
+import os
 
-config_files = "/home/pi/python_script/temp_ctrl/config.json"
+config_files = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 with open(config_files, 'r') as f:
     data = json.load(f)
