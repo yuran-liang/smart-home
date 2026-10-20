@@ -3,6 +3,7 @@
 import random
 import time
 import json
+import os
 
 from paho.mqtt import client as mqtt_client
 
@@ -13,7 +14,7 @@ topic = "desire/temperature"
 # generate client ID with pub prefix randomly
 client_id = f"python-mqtt-{random.randint(0, 1000)}"
 
-config_files = "/home/pi/python_script/temp_ctrl/config.json"
+config_files = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 def connect_mqtt():
     def on_connect(client, userdata, flags, rc):

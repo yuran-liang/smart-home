@@ -7,6 +7,7 @@ from paho.mqtt import client as mqtt_client
 import re
 import subprocess
 import json
+import os
 import copy
 
 broker = 'localhost'
@@ -22,7 +23,7 @@ K_p = 1.0
 
 list_files = subprocess.run(["/home/pi/eQ-3-radiator-thermostat/eq3.exp", "00:1A:22:16:D0:FA", "manual"])
 
-config_files = "/home/pi/python_script/temp_ctrl/config.json"
+config_files = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 def connect_mqtt() -> mqtt_client:
     def on_connect(client, userdata, flags, rc):
