@@ -7,7 +7,8 @@ PlatformIO firmware for a NodeMCU (ESP8266) room sensor.
 - Serves a small WebSocket page on port 80 to toggle the on-board LED (GPIO 2)
 - Supports OTA firmware updates via AsyncElegantOTA (`http://<device-ip>/update`)
 
-The temperature topic is consumed by the [`thermostat`](../thermostat) radiator controller.
+Not deployed at the moment. It used to feed the room temperature to the radiator controller,
+which has since been removed.
 
 ## Setup
 
