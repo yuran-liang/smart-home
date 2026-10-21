@@ -1,6 +1,38 @@
-version: "3.8"
-
 services:
+  # ===============================
+  # Mosquitto (MQTT broker)
+  # ===============================
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:2   # Use major version 2 for stability; avoid 'latest' to prevent breaking changes (v3+)
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ${DATA_DIR}/mosquitto/config:/mosquitto/config
+      - ${DATA_DIR}/mosquitto/data:/mosquitto/data
+      - ${DATA_DIR}/mosquitto/log:/mosquitto/log
+    environment:
+      - TZ=${TZ}
+
+  # ===============================
+  # Homebridge (Apple HomeKit bridge)
+  # ===============================
+  homebridge:
+    container_name: homebridge
+    image: homebridge/homebridge:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${DATA_DIR}/homebridge:/homebridge
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+
+  # ===============================
+  # Home Assistant (Smart Home Core)
+  # ===============================
   homeassistant:
     container_name: homeassistant
     image: ghcr.io/home-assistant/home-assistant:stable
@@ -9,11 +41,14 @@ services:
     privileged: true
     network_mode: host
     environment:
-      - TZ=Europe/Berlin
+      - TZ=${TZ}
     volumes:
-      - /home/pi/homeassistant:/config
+      - ${DATA_DIR}/homeassistant:/config
       - /etc/localtime:/etc/localtime:ro
 
+  # ===============================
+  # Zigbee2MQTT (Zigbee bridge via Sonoff Dongle MG24)
+  # ===============================
   zigbee2mqtt:
     container_name: zigbee2mqtt
     image: koenkk/zigbee2mqtt:latest
@@ -21,13 +56,31 @@ services:
     network_mode: host
     privileged: true
     environment:
-      - TZ=Europe/Berlin
+      - TZ=${TZ}
     volumes:
-      - /home/pi/zigbee2mqtt/data:/app/data
+      - ${DATA_DIR}/zigbee2mqtt/data:/app/data
       - /run/udev:/run/udev:ro
     devices:
-      - /dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_84772fa1b19aef119fa5b89061ce3355-if00-port0:/dev/ttyUSB0
+      - ${ZIGBEE_DONGLE}:/dev/ttyUSB0
 
+  # ===============================
+  # Node-RED (Automation & Flows)
+  # ===============================
+  # Do not mount anything inside /data/nrchkb: node-red-contrib-homekit-bridged
+  # reads every entry there every 2 minutes and crashes Node-RED on a subdirectory.
+  nodered:
+    container_name: nodered
+    image: nodered/node-red:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${DATA_DIR}/nodered/data:/data
+
+  # ===============================
+  # Watchtower (Auto-update for containers)
+  # ===============================
   watchtower:
     container_name: watchtower
     image: containrrr/watchtower
@@ -35,10 +88,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - TZ=Europe/Berlin
+      - TZ=${TZ}
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=86400   # check once per day
 
+  # ===============================
+  # Portainer (Web Docker Management)
+  # ===============================
   portainer:
     container_name: portainer
     image: portainer/portainer-ce:latest
