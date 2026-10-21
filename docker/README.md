@@ -1,4 +1,4 @@
-# raspberrypi
+# docker — Raspberry Pi service stack
 
 Docker Compose stack for the home automation Raspberry Pi (arm64).
 
