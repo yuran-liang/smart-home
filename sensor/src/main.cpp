@@ -16,7 +16,7 @@
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>
+#include <ElegantOTA.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <OneWire.h>
@@ -376,7 +376,7 @@ void setup(){
 
 
   // Start ElegantOTA
-  AsyncElegantOTA.begin(&server);
+  ElegantOTA.begin(&server);
   // Start server
   server.begin();
 }
@@ -384,7 +384,7 @@ void setup(){
 
 
 void loop() {
-  AsyncElegantOTA.loop();
+  ElegantOTA.loop();
   ws.cleanupClients();
   digitalWrite(ledPin, ledState);
 
