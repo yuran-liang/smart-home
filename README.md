@@ -53,6 +53,21 @@ Each directory has its own README with setup details.
 2. Flash the sensor: copy `sensor/include/secrets.h.example` to `sensor/include/secrets.h`,
    fill in Wi-Fi credentials and the broker address, then `pio run -t upload`.
 
+## Deploying changes
+
+The Pi runs the stack from a clone of this repository (`~/smart-home`, with `docker/.env`) next
+to a clone of home-config. After pushing to either repository, run from any machine with SSH
+access to the Pi (host `pi` by default, override with `DEPLOY_HOST`):
+
+```bash
+scripts/deploy.sh --dry-run   # check for unexported live changes, list incoming commits
+scripts/deploy.sh             # pull both, restore configs, apply compose, restart changed services
+```
+
+It stops before writing anything when a live config differs from home-config, so a change made
+in a web UI but never exported is not overwritten. CI checks the Compose file, the shell scripts
+and the sensor firmware build on every push; it does not deploy.
+
 ## History
 
 This repository combines three earlier repositories, with their commit history preserved:
