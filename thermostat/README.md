@@ -1,7 +1,7 @@
-# Temperature-controll
+# thermostat — radiator controller
 
 Room temperature control on a Raspberry Pi: an eQ-3 Bluetooth radiator thermostat is
-driven from the room temperature measured by the `ESP8266-DHT22` sensor.
+driven from the room temperature measured by the [`sensor`](../sensor) firmware.
 
 ## How it works
 
