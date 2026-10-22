@@ -3,7 +3,7 @@
 [![CI](https://github.com/yuran-liang/smart-home/actions/workflows/ci.yml/badge.svg)](https://github.com/yuran-liang/smart-home/actions/workflows/ci.yml)
 
 Home automation built around a Raspberry Pi and MQTT. A Docker stack runs the MQTT broker,
-Zigbee2MQTT, Homebridge, Node-RED and Home Assistant. Apple Home is the user interface: Homebridge
+Zigbee2MQTT, Homebridge and Node-RED. Apple Home is the user interface: Homebridge
 exposes the Zigbee lights, the ceiling-light relays, the roller shutters and a few other devices
 to it, and Node-RED translates the shutter commands for their radio gateway.
 
@@ -19,7 +19,6 @@ flowchart LR
             B[("Mosquitto<br/>:1883")]
             Z["Zigbee2MQTT"]
             NR["Node-RED"]
-            HA["Home Assistant"]
         end
     end
 
@@ -34,7 +33,6 @@ flowchart LR
         FAN["Xiaomi fan"]
         GW["Shutter radio gateway"]
         R["Roller shutters"]
-        RR["Roborock vacuum"]
     end
 
     AH <--> HB
@@ -48,7 +46,6 @@ flowchart LR
     NR -- "HTTP" --> GW
     GW --> R
     S -. "esp/dht/*" .-> B
-    HA --> RR
 ```
 
 - **Homebridge** is the only bridge to Apple Home. It reaches the Zigbee devices through
@@ -58,16 +55,15 @@ flowchart LR
   Node-RED subflow turns it into an HTTP call to the radio gateway that drives the motors.
   Node-RED also holds room scenes that combine Zigbee lights and Shelly relays, and a dashboard
   for the sensor readings.
-- **Home Assistant** is not connected to MQTT (Zigbee2MQTT's Home Assistant discovery is off); it
-  runs the Roborock integration.
 - **Not drawn:** Watchtower updates the container images daily, and Portainer is a web UI for
-  Docker. The sensor is dashed because it is not deployed at the moment.
+  Docker. The Roborock vacuum joins Apple Home directly over Matter and does not involve the Pi.
+  The sensor is dashed because it is not deployed at the moment.
 
 ## Components
 
 | Path | What it is | Stack |
 |---|---|---|
-| [`docker/`](docker) | Docker Compose stack for the Pi: Mosquitto, Home Assistant, Zigbee2MQTT, Homebridge, Node-RED, Watchtower, Portainer | Docker Compose |
+| [`docker/`](docker) | Docker Compose stack for the Pi: Mosquitto, Zigbee2MQTT, Homebridge, Node-RED, Watchtower, Portainer | Docker Compose |
 | [`sensor/`](sensor) | ESP8266 firmware: reads a DHT22 every 60 s and publishes temperature and humidity via MQTT; WebSocket status page and OTA updates. Not deployed at the moment | C++, PlatformIO, Arduino |
 | [`scripts/`](scripts) | `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
 | [`.github/workflows/`](.github/workflows) | CI: validates the Compose file, lints the shell scripts and builds the sensor firmware | GitHub Actions |
