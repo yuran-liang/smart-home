@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
   # Weekly, to catch dependencies that change upstream (Mondays, UTC)
