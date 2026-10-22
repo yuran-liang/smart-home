@@ -56,7 +56,8 @@ Each directory has its own README with setup details.
 ## Deploying changes
 
 The Pi runs the stack from a clone of this repository (`~/smart-home`, with `docker/.env`) next
-to a clone of home-config. After pushing to either repository, run from any machine with SSH
+to a clone of home-config, a separate private repository with the service configs and the
+`export.py`/`restore.py` scripts that copy them to and from `DATA_DIR`. After pushing to either repository, run from any machine with SSH
 access to the Pi (host `pi` by default, override with `DEPLOY_HOST`):
 
 ```bash
