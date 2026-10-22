@@ -31,22 +31,6 @@ services:
       - 8.8.8.8
 
   # ===============================
-  # Home Assistant (Smart Home Core)
-  # ===============================
-  homeassistant:
-    container_name: homeassistant
-    image: ghcr.io/home-assistant/home-assistant:stable
-    platform: linux/arm64
-    restart: unless-stopped
-    privileged: true
-    network_mode: host
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - ${DATA_DIR}/homeassistant:/config
-      - /etc/localtime:/etc/localtime:ro
-
-  # ===============================
   # Zigbee2MQTT (Zigbee bridge via Sonoff Dongle MG24)
   # ===============================
   zigbee2mqtt:
