@@ -22,10 +22,11 @@ Host-specific values live in `.env` (not committed):
 | `DATA_DIR` | Base directory for all service data; `/home/pi` on the current Pi |
 | `TZ` | Time zone for all containers |
 | `ZIGBEE_DONGLE` | `/dev/serial/by-id/...` path of the Zigbee coordinator |
+| `COMPOSE_PROJECT_NAME` | Compose project name, `pi` on the current Pi. It prefixes the named volumes, so changing it on an existing host gives Portainer an empty `<name>_portainer_data` volume |
 
-Service configs and data (Zigbee2MQTT config, Mosquitto `mosquitto.conf`
-and `passwd`, Homebridge `config.json`, Node-RED flows) are not in this repository; restore
-them into `$DATA_DIR` before starting the stack on a new host.
+Service configs and data (Zigbee2MQTT config, Mosquitto `mosquitto.conf` and `passwd`,
+Homebridge `config.json`, Node-RED flows) are not in this repository; restore them into
+`$DATA_DIR` before starting the stack on a new host.
 
 Mosquitto refuses anonymous clients. Its `mosquitto.conf` is:
 
