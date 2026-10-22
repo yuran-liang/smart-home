@@ -3,20 +3,24 @@
 #
 # Usage: scripts/deploy.sh [--dry-run]
 #
-#   --dry-run  only check for unexported live changes and list the incoming commits
+#   --dry-run  only run the checks and list the incoming commits with their CI status
 #
 # Steps on the Pi:
 #   1. Run home-config's export.py and stop if a live config differs from git, e.g. after a change
 #      in a web UI that was never exported. Deploying would overwrite it; commit it first.
-#   2. Show the incoming commits of both repositories and ask for confirmation.
+#   2. Show the incoming commits of both repositories, stop unless CI passed on them, and ask for
+#      confirmation.
 #   3. Pull both, write the configs with restore.py, apply docker-compose.yml, and restart the
 #      services whose config files were written.
 #
 # DEPLOY_HOST (default: pi) is an SSH host; DATA_DIR (default: /home/pi) is the services' data root.
+# Needs the GitHub CLI (gh), logged in with access to both repositories of GITHUB_OWNER
+# (default: yuran-liang), to check that CI passed on the commits to deploy.
 set -euo pipefail
 
 HOST=${DEPLOY_HOST:-pi}
 DATA_DIR=${DATA_DIR:-/home/pi}
+GITHUB_OWNER=${GITHUB_OWNER:-yuran-liang}
 # Clones in the home directory of the SSH user, where remote commands start
 SMART_HOME=smart-home
 HOME_CONFIG=home-config
@@ -48,17 +52,34 @@ fi
 
 echo "==> Incoming commits"
 incoming=false
-for repo in "$SMART_HOME" "$HOME_CONFIG"; do
-    log=$(remote "cd $repo && git fetch -q && git log --oneline HEAD..@{u}")
-    if [ -n "$log" ]; then
-        incoming=true
-        echo "$repo:"
-        echo "  ${log//$'\n'/$'\n  '}"
+ci_failed=false
+# Indexed arrays only: macOS ships bash 3.2, which has no associative arrays
+repos=("$SMART_HOME" "$HOME_CONFIG")
+targets=()
+for i in "${!repos[@]}"; do
+    repo=${repos[$i]}
+    targets[i]=$(remote "cd $repo && git fetch -q && git rev-parse @{u}")
+    log=$(remote "cd $repo && git log --oneline HEAD..${targets[i]}")
+    if [ -z "$log" ]; then
+        continue
+    fi
+    incoming=true
+    # The last push run of CI on the commit to deploy must have passed
+    ci=$(gh run list -R "$GITHUB_OWNER/$repo" --commit "${targets[i]}" --event push -L 1 \
+        --json status,conclusion --jq '.[] | "\(.status) \(.conclusion)"')
+    echo "$repo (CI: ${ci:-no run}):"
+    echo "  ${log//$'\n'/$'\n  '}"
+    if [ "$ci" != "completed success" ]; then
+        ci_failed=true
     fi
 done
 if ! $incoming; then
     echo "Nothing to deploy."
     exit 0
+fi
+if $ci_failed; then
+    echo "CI has not passed on every commit to deploy; wait for it or fix it first." >&2
+    exit 1
 fi
 if $DRY_RUN; then
     exit 0
@@ -70,7 +91,10 @@ if [ "$answer" != y ]; then
 fi
 
 echo "==> Pulling"
-remote "git -C $SMART_HOME pull -q --ff-only && git -C $HOME_CONFIG pull -q --ff-only"
+# Merge exactly the commits CI was checked on, even if something was pushed since
+for i in "${!repos[@]}"; do
+    remote "git -C ${repos[i]} merge -q --ff-only ${targets[i]}"
+done
 
 echo "==> Writing configs"
 written=$(remote "cd $HOME_CONFIG && DATA_DIR=$DATA_DIR python3 scripts/restore.py")
