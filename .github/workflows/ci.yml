@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Weekly, to catch dependencies that change upstream (Mondays, UTC)
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   compose:
