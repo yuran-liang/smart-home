@@ -25,9 +25,10 @@ if [ "${1:-}" = --dry-run ]; then
     DRY_RUN=true
 fi
 
-# LogLevel=ERROR hides the Pi's warning about its older OpenSSH key exchange
+# LogLevel=ERROR hides the Pi's warning about its older OpenSSH key exchange; -n keeps ssh from
+# reading stdin, which would swallow the answer to the confirmation prompt
 remote() {
-    ssh -o LogLevel=ERROR "$HOST" "$@"
+    ssh -n -o LogLevel=ERROR "$HOST" "$@"
 }
 
 echo "==> Checking $HOST for live changes that are not in home-config"
