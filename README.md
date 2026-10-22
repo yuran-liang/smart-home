@@ -1,50 +1,78 @@
 # smart-home
 
+[![CI](https://github.com/yuran-liang/smart-home/actions/workflows/ci.yml/badge.svg)](https://github.com/yuran-liang/smart-home/actions/workflows/ci.yml)
+
 Home automation built around a Raspberry Pi and MQTT. A Docker stack runs the MQTT broker,
-Home Assistant, Zigbee2MQTT, Homebridge and Node-RED: Zigbee devices come in through a SONOFF
-dongle, Homebridge exposes them to Apple Home, and Node-RED drives the motorised roller shutters.
+Zigbee2MQTT, Homebridge, Node-RED and Home Assistant. Apple Home is the user interface: Homebridge
+exposes the Zigbee lights, the ceiling-light relays, the roller shutters and a few other devices
+to it, and Node-RED translates the shutter commands for their radio gateway.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
+    AH["Apple Home"]
+
+    subgraph PI["Raspberry Pi"]
+        subgraph D["docker/"]
+            HB["Homebridge"]
+            B[("Mosquitto<br/>:1883")]
+            Z["Zigbee2MQTT"]
+            NR["Node-RED"]
+            HA["Home Assistant"]
+        end
+    end
+
     subgraph ESP["ESP8266 (NodeMCU)"]
         S["sensor/<br/>DHT22 firmware"]
     end
 
-    subgraph PI["Raspberry Pi"]
-        subgraph D["docker/"]
-            B[("Mosquitto<br/>:1883")]
-            HA["Home Assistant"]
-            Z["Zigbee2MQTT"]
-            HB["Homebridge"]
-            NR["Node-RED"]
-        end
+    subgraph DEV["Devices"]
+        ZD["Zigbee devices"]
+        TP["Tasmota plug"]
+        SH["Shelly relays<br/>(ceiling lights)"]
+        FAN["Xiaomi fan"]
+        GW["Shutter radio gateway"]
+        R["Roller shutters"]
+        RR["Roborock vacuum"]
     end
 
-    ZD["Zigbee devices"]
-    R["Roller shutters"]
-    AH["Apple Home"]
-
-    S -. "esp/dht/temperature<br/>esp/dht/humidity" .-> B
-    ZD -- "SONOFF MG24 dongle" --> Z
-    Z --> B
-    B <--> HB
+    AH <--> HB
+    HB <--> B
+    HB -- "HTTP" --> SH
+    HB -- "miIO" --> FAN
+    B <--> Z
+    Z -- "SONOFF MG24 dongle" --> ZD
+    B <--> TP
     B <--> NR
-    NR --> R
-    HB --> AH
+    NR -- "HTTP" --> GW
+    GW --> R
+    S -. "esp/dht/*" .-> B
+    HA --> RR
 ```
 
-The sensor is drawn dashed because it is not deployed at the moment.
+- **Homebridge** is the only bridge to Apple Home. It reaches the Zigbee devices through
+  Zigbee2MQTT (`homebridge-z2m`), the Tasmota plug and the roller shutters through MQTT, the
+  Shelly relays over their HTTP API and the Xiaomi fan over miIO.
+- **Roller shutters:** Homebridge publishes the target position to `curtain/<address>/set`; a
+  Node-RED subflow turns it into an HTTP call to the radio gateway that drives the motors.
+  Node-RED also holds room scenes that combine Zigbee lights and Shelly relays, and a dashboard
+  for the sensor readings.
+- **Home Assistant** is not connected to MQTT (Zigbee2MQTT's Home Assistant discovery is off); it
+  runs the Roborock integration.
+- **Not drawn:** Watchtower updates the container images daily, and Portainer is a web UI for
+  Docker. The sensor is dashed because it is not deployed at the moment.
 
 ## Components
 
-| Directory | What it is | Stack |
+| Path | What it is | Stack |
 |---|---|---|
-| [`sensor/`](sensor) | ESP8266 firmware: reads a DHT22 every 60 s and publishes temperature and humidity via MQTT; WebSocket status page and OTA updates. Not deployed at the moment | C++, PlatformIO, Arduino |
 | [`docker/`](docker) | Docker Compose stack for the Pi: Mosquitto, Home Assistant, Zigbee2MQTT, Homebridge, Node-RED, Watchtower, Portainer | Docker Compose |
+| [`sensor/`](sensor) | ESP8266 firmware: reads a DHT22 every 60 s and publishes temperature and humidity via MQTT; WebSocket status page and OTA updates. Not deployed at the moment | C++, PlatformIO, Arduino |
+| [`scripts/`](scripts) | `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
+| [`.github/workflows/`](.github/workflows) | CI: validates the Compose file, lints the shell scripts and builds the sensor firmware | GitHub Actions |
 
-Each directory has its own README with setup details.
+`docker/` and `sensor/` have their own READMEs with setup details.
 
 ## Getting started
 
@@ -57,17 +85,22 @@ Each directory has its own README with setup details.
 
 The Pi runs the stack from a clone of this repository (`~/smart-home`, with `docker/.env`) next
 to a clone of home-config, a separate private repository with the service configs and the
-`export.py`/`restore.py` scripts that copy them to and from `DATA_DIR`. After pushing to either repository, run from any machine with SSH
-access to the Pi (host `pi` by default, override with `DEPLOY_HOST`):
+`export.py`/`restore.py` scripts that copy them to and from `DATA_DIR`. After a change is merged
+into `main` of either repository, run from any machine with SSH access to the Pi (host `pi` by
+default, override with `DEPLOY_HOST`) and a logged-in GitHub CLI:
 
 ```bash
-scripts/deploy.sh --dry-run   # check for unexported live changes, list incoming commits
+scripts/deploy.sh --dry-run   # run the checks, list incoming commits with their CI status
 scripts/deploy.sh             # pull both, restore configs, apply compose, restart changed services
 ```
 
 It stops before writing anything when a live config differs from home-config, so a change made
-in a web UI but never exported is not overwritten. CI checks the Compose file, the shell scripts
-and the sensor firmware build on every push; it does not deploy.
+in a web UI but never exported is not overwritten, and when CI has not passed on a commit it
+would deploy.
+
+CI runs on pull requests, on pushes to `main` and weekly, to catch dependencies that break
+upstream. `main` is protected: changes go through a pull request with passing checks. CI never
+deploys.
 
 ## History
 
@@ -75,3 +108,7 @@ This repository combines three earlier repositories, with their commit history p
 `raspberrypi-docker` → `docker/`, `Temperature-controll` → `thermostat/`, `ESP8266-DHT22` → `sensor/`.
 `thermostat/` (an MQTT-driven controller for an eQ-3 Bluetooth radiator thermostat) was removed
 after the move to underfloor heating; it remains in the history.
+
+## License
+
+[MIT](LICENSE)
