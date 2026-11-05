@@ -63,6 +63,30 @@ services:
       - ${DATA_DIR}/nodered/data:/data
 
   # ===============================
+  # Samba (external HDD as a network drive)
+  # ===============================
+  samba:
+    container_name: samba
+    image: dockurr/samba
+    restart: unless-stopped
+    ports:
+      - "445:445"
+    environment:
+      - TZ=${TZ}
+      - NAME=${SAMBA_SHARE}
+      - USER=${SAMBA_USER}
+      - PASS=${SAMBA_PASSWORD:?set SAMBA_PASSWORD in .env}
+    volumes:
+      # rslave: a mount of the HDD that happens after the container started (e.g. at boot)
+      # still shows up inside it. No create_host_path: a missing mount point fails loudly.
+      - type: bind
+        source: ${HDD_DIR}
+        target: /shared
+        bind:
+          propagation: rslave
+          create_host_path: false
+
+  # ===============================
   # Watchtower (Auto-update for containers)
   # ===============================
   watchtower:
