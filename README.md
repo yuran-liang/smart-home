@@ -94,7 +94,9 @@ It stops before writing anything when a live config differs from home-config, so
 in a web UI but never exported is not overwritten, and when CI has not passed on a commit it
 would deploy.
 
-CI runs on pull requests, on pushes to `main` and weekly, to catch dependencies that break
+CI runs on GitHub's runners, or on a self-hosted runner when the repository variable `CI_RUNS_ON`
+is set (a JSON label list, e.g. `["self-hosted","home-mac"]`). It runs on pull requests, on
+pushes to `main` and weekly, to catch dependencies that break
 upstream. `main` is protected: changes go through a pull request with passing checks. CI never
 deploys.
 
