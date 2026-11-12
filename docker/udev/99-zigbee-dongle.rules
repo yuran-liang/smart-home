@@ -1,0 +1,11 @@
+# Restart Zigbee2MQTT when the SONOFF Dongle Plus MG24 appears.
+#
+# The container maps the dongle by its /dev/serial/by-id path. If the dongle is missing when the
+# container starts (not plugged in, failed USB enumeration at boot), Docker cannot start it and
+# does not retry; a dongle plugged in later has no effect until someone starts the container. A
+# replugged dongle also leaves a running container with a stale device node. Restarting on every
+# "add" event fixes both. At boot the event comes before Docker is up; the command then fails
+# harmlessly and the container's restart policy starts it.
+#
+# Install: sudo cp docker/udev/99-zigbee-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+ACTION=="add", SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="10c4", ENV{ID_MODEL}=="SONOFF_Dongle_Plus_MG24", RUN+="/usr/bin/systemd-run --no-block /usr/bin/docker restart zigbee2mqtt"
