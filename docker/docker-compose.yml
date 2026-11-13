@@ -99,6 +99,8 @@ services:
       - TZ=${TZ}
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=86400   # check once per day
+      # The image is unmaintained and talks API 1.25; Docker 29 refuses anything below 1.40
+      - DOCKER_API_VERSION=1.44
 
   # ===============================
   # Portainer (Web Docker Management)
