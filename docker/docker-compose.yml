@@ -87,6 +87,67 @@ services:
           create_host_path: false
 
   # ===============================
+  # Nextcloud (files, with MariaDB)
+  # ===============================
+  # Not updated by Watchtower: Nextcloud upgrades one major version at a time. Change
+  # NEXTCLOUD_VERSION in .env and run `docker compose up -d nextcloud` for each step.
+  nextcloud-db:
+    container_name: nextcloud-db
+    image: mariadb:${NEXTCLOUD_DB_VERSION:-10.6}
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    environment:
+      - TZ=${TZ}
+      - MARIADB_ROOT_PASSWORD=${NEXTCLOUD_DB_ROOT_PASSWORD:?set NEXTCLOUD_DB_ROOT_PASSWORD in .env}
+      - MARIADB_DATABASE=nextclouddb
+      - MARIADB_USER=nextcloud
+      - MARIADB_PASSWORD=${NEXTCLOUD_DB_PASSWORD:?set NEXTCLOUD_DB_PASSWORD in .env}
+    volumes:
+      - nextcloud_db:/var/lib/mysql
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  nextcloud:
+    container_name: nextcloud
+    image: nextcloud:${NEXTCLOUD_VERSION:?set NEXTCLOUD_VERSION in .env}-apache
+    restart: unless-stopped
+    depends_on:
+      - nextcloud-db
+    ports:
+      - "${NEXTCLOUD_PORT:-8080}:80"
+    environment:
+      - TZ=${TZ}
+      - MYSQL_HOST=nextcloud-db
+      - MYSQL_DATABASE=nextclouddb
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+      - PHP_MEMORY_LIMIT=1G
+      - PHP_UPLOAD_LIMIT=16G
+    volumes:
+      # Code, apps and config.php
+      - nextcloud_html:/var/www/html
+      # Same path as the datadirectory in config.php
+      - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  # Background jobs: runs cron.php every 5 minutes
+  nextcloud-cron:
+    container_name: nextcloud-cron
+    image: nextcloud:${NEXTCLOUD_VERSION}-apache
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    entrypoint: /cron.sh
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - nextcloud_html:/var/www/html
+      - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  # ===============================
   # Watchtower (Auto-update for containers)
   # ===============================
   watchtower:
@@ -117,3 +178,5 @@ services:
 
 volumes:
   portainer_data:
+  nextcloud_db:
+  nextcloud_html:
