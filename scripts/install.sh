@@ -161,6 +161,15 @@ fi
 echo "==> Containers"
 (cd "$REPO/docker" && sudo docker compose pull && sudo docker compose up -d)
 
+echo "==> Node-RED modules"
+# The flows need the nodes listed in nodered/data/package.json (dashboard, HomeKit, ...). They are
+# not part of home-config, and without them Node-RED does not start the flows at all.
+if [ ! -d "$DATA_DIR/nodered/data/node_modules" ]; then
+    sudo docker exec nodered sh -c 'cd /data && npm install --omit=dev --no-audit --no-fund'
+    sudo docker exec nodered sh -c 'cd /data/node_modules/node-red-dashboard && node fixgrid.js' || true
+    sudo docker restart nodered > /dev/null
+fi
+
 echo "==> Daily state backup"
 if [ -f "$HOME_CONFIG/scripts/backup-state.sh" ] && mountpoint -q "$HDD_DIR"; then
     job="30 3 * * * DATA_DIR=$DATA_DIR BACKUP_DIR=$HDD_DIR/backup/smart-home-state $HOME_CONFIG/scripts/backup-state.sh >> /var/log/backup-state.log 2>&1"
