@@ -114,7 +114,8 @@ services:
     depends_on:
       - nextcloud-db
     ports:
-      - "${NEXTCLOUD_PORT:-8080}:80"
+      # Localhost only: reached through `tailscale serve` (HTTPS), not directly from the LAN
+      - "127.0.0.1:${NEXTCLOUD_PORT:-8090}:80"
     environment:
       - TZ=${TZ}
       - MYSQL_HOST=nextcloud-db
