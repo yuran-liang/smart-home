@@ -128,12 +128,26 @@ fi
 
 echo "==> Runtime state"
 if [ -n "$STATE_ARCHIVE" ]; then
-    sudo tar xzf "$STATE_ARCHIVE" -C "$DATA_DIR"
-    if [ ! -f "$HOME_CONFIG/secrets.env" ] && [ -f "$DATA_DIR/secrets.env" ]; then
+    # --no-overwrite-dir: the archive has an entry for its top directory ("./"), which would
+    # otherwise replace the owner and mode of DATA_DIR itself. When DATA_DIR is the home
+    # directory, that locks the user out of SSH.
+    sudo tar xzf "$STATE_ARCHIVE" --no-overwrite-dir -C "$DATA_DIR"
+    # sudo: the archive's files may belong to root, so the user may not be able to see them
+    if [ ! -f "$HOME_CONFIG/secrets.env" ] && sudo test -f "$DATA_DIR/secrets.env"; then
         sudo mv "$DATA_DIR/secrets.env" "$HOME_CONFIG/secrets.env"
         sudo chown "$USER:$USER" "$HOME_CONFIG/secrets.env"
+        sudo chmod 600 "$HOME_CONFIG/secrets.env"
     fi
 fi
+# Safety net: a home directory that is not the user's, or is writable by others, makes sshd refuse
+# the user's keys
+case "$(stat -c '%U %a' "$HOME")" in
+    "$USER 700" | "$USER 750" | "$USER 755") ;;
+    *)
+        echo "The home directory has an unexpected owner or mode: $(stat -c '%U %a' "$HOME")" >&2
+        exit 1
+        ;;
+esac
 
 echo "==> Service configs"
 sudo env DATA_DIR="$DATA_DIR" python3 "$HOME_CONFIG/scripts/restore.py"
