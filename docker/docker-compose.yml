@@ -233,6 +233,33 @@ services:
       - ./guest-exit:/guest-exit:ro
 
   # ===============================
+  # Scheduled jobs (state backup, Nextcloud update check)
+  # ===============================
+  # Replaces the root crontab on the host. The Docker socket lets the update check run occ in the
+  # Nextcloud container; the state backup needs the service data, the HDD and the home-config clone.
+  jobs:
+    container_name: jobs
+    build: ./jobs
+    image: smart-home-jobs:local
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - NEXTCLOUD_NOTIFY_USER=${NEXTCLOUD_NOTIFY_USER:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR}:/data
+      - ${HOME_CONFIG_DIR:-../../home-config}:/home-config:ro
+      - ../scripts:/scripts:ro
+      - type: bind
+        source: ${HDD_DIR}
+        target: /hdd
+        bind:
+          propagation: rslave
+          create_host_path: false
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  # ===============================
   # Watchtower (Auto-update for containers)
   # ===============================
   watchtower:

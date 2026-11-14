@@ -1,0 +1,3 @@
+# m h dom mon dow  command (output goes to the container log)
+30 3 * * * /jobs/backup-state.sh > /proc/1/fd/1 2>&1
+0 9 * * 1 [ -n "$NEXTCLOUD_NOTIFY_USER" ] && /scripts/check-nextcloud-update.sh > /proc/1/fd/1 2>&1
