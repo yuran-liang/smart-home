@@ -128,7 +128,7 @@ services:
       - nextcloud-db
       - nextcloud-redis
     ports:
-      # Localhost only: reached through `tailscale serve` (HTTPS), not directly from the LAN
+      # Localhost only: reached through the tailscale container (HTTPS), not directly from the LAN
       - "127.0.0.1:${NEXTCLOUD_PORT:-8090}:80"
     environment:
       - TZ=${TZ}

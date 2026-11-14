@@ -84,9 +84,9 @@ else
     bad "no state backup newer than ${BACKUP_MAX_AGE_H} h in $state_dir"
 fi
 
-# Tailscale (only when installed)
-if command -v tailscale > /dev/null; then
-    tailscale status > /dev/null 2>&1 && ok "Tailscale connected" || bad "Tailscale not connected"
+# Tailscale (a container; only checked when the stack has one)
+if echo "$services" | grep -qx tailscale; then
+    if docker_cmd exec tailscale tailscale status > /dev/null 2>&1; then ok "Tailscale connected"; else bad "Tailscale not connected"; fi
 fi
 
 echo

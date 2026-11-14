@@ -21,8 +21,8 @@
 #                    (default: $BACKUP_DIR/upgrade-snapshots)
 #   MAX_MAJOR        stop after this major version (default: 60)
 #
-# The script does not publish Nextcloud: afterwards run `tailscale serve` or `tailscale funnel`
-# (docker/README.md).
+# The script does not publish Nextcloud: the tailscale container does, through
+# docker/tailscale/serve.json (docker/README.md).
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -191,7 +191,5 @@ occ maintenance:repair --include-expensive
 compose up -d nextcloud-cron
 occ status
 
-nc_port=$(get_env NEXTCLOUD_PORT)
 echo
-echo "Done. Publish it: sudo tailscale serve --bg --https=443 http://127.0.0.1:${nc_port:-8090}"
-echo "(or funnel, to reach it without a VPN), then run scripts/verify.sh."
+echo "Done. The tailscale container publishes it (docker/tailscale/serve.json); run scripts/verify.sh."
