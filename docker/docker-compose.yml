@@ -106,7 +106,8 @@ services:
     container_name: nextcloud-db
     image: mariadb:${NEXTCLOUD_DB_VERSION:-10.11}
     restart: unless-stopped
-    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    # innodb-log-file-size: Nextcloud's database check wants at least 128 MB (the default is 96 MB)
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW --innodb-log-file-size=256M
     environment:
       - TZ=${TZ}
       - MARIADB_ROOT_PASSWORD=${NEXTCLOUD_DB_ROOT_PASSWORD:?set NEXTCLOUD_DB_ROOT_PASSWORD in .env}
