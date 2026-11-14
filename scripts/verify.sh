@@ -84,6 +84,19 @@ else
     bad "no state backup newer than ${BACKUP_MAX_AGE_H} h in $state_dir"
 fi
 
+# Nextcloud backup: the newest snapshot of the files in the restic repository (run by the jobs
+# container, which has the repository and its password in its environment)
+if echo "$services" | grep -qx jobs; then
+    snap=$(docker_cmd exec jobs sh -c 'restic snapshots --host nextcloud --tag files --latest 1 --json | jq -r ".[0].time // empty"' 2> /dev/null || true)
+    if [ -z "$snap" ]; then
+        bad "no Nextcloud snapshot in the restic repository (first backup not run yet?)"
+    elif [ "$(date -d "$snap" +%s)" -gt "$(date -d "-${BACKUP_MAX_AGE_H} hours" +%s)" ]; then
+        ok "Nextcloud snapshot newer than ${BACKUP_MAX_AGE_H} h"
+    else
+        bad "newest Nextcloud snapshot is from $snap"
+    fi
+fi
+
 # Tailscale (a container; only checked when the stack has one)
 if echo "$services" | grep -qx tailscale; then
     if docker_cmd exec tailscale tailscale status > /dev/null 2>&1; then ok "Tailscale connected"; else bad "Tailscale not connected"; fi
