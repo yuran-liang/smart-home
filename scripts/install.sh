@@ -21,6 +21,7 @@
 #   HDD_DIR          mount point of the HDD (default: /mnt/hdd)
 #   STATE_ARCHIVE    runtime state archive to restore, see above
 #   WITH_TAILSCALE   1 installs Tailscale and enables IP forwarding for a subnet router
+#   TAILSCALE_STATE  tailscaled.state of the old install; keeps the node's identity (WITH_TAILSCALE=1)
 #
 # Steps: packages, Docker, docker/.env, HDD mount, service configs, udev rule, containers,
 # daily state backup, optional Tailscale.
@@ -183,7 +184,25 @@ fi
 if [ "$WITH_TAILSCALE" = 1 ]; then
     echo "==> Tailscale"
     if ! command -v tailscale > /dev/null; then
-        curl -fsSL https://tailscale.com/install.sh | sh
+        # Signed apt repository instead of piping an install script into a shell. Raspberry Pi OS
+        # uses the Debian repository.
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        ts_dist=debian
+        [ "$ID" = ubuntu ] && ts_dist=ubuntu
+        sudo curl -fsSL "https://pkgs.tailscale.com/stable/$ts_dist/$VERSION_CODENAME.noarmor.gpg" \
+            -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+        sudo curl -fsSL "https://pkgs.tailscale.com/stable/$ts_dist/$VERSION_CODENAME.tailscale-keyring.list" \
+            -o /etc/apt/sources.list.d/tailscale.list
+        sudo apt-get update
+        sudo apt-get install -y tailscale
+    fi
+    # Keep the node identity of an earlier install (name, address, key expiry) by restoring its
+    # state file before the first start
+    if [ -n "${TAILSCALE_STATE:-}" ] && [ ! -s /var/lib/tailscale/tailscaled.state ]; then
+        sudo systemctl stop tailscaled
+        sudo install -m 600 "$TAILSCALE_STATE" /var/lib/tailscale/tailscaled.state
+        sudo systemctl start tailscaled
     fi
     printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' |
         sudo tee /etc/sysctl.d/99-tailscale.conf > /dev/null
