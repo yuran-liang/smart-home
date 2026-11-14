@@ -4,7 +4,7 @@
 # scripts themselves are mounted from the repositories, not baked into the image.
 FROM docker:cli
 
-RUN apk add --no-cache bash coreutils tar curl jq tzdata restic smartmontools
+RUN apk add --no-cache bash coreutils findutils tar curl jq tzdata restic smartmontools
 
 COPY crontab /etc/crontabs/root
 COPY *.sh /jobs/

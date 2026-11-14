@@ -109,7 +109,7 @@ fi
 
 # Raspberry Pi: supply voltage and throttling (get_throttled bits: 0 under-voltage now, 2 throttled
 # now, 3 soft temperature limit now, 16 under-voltage since boot, 18 throttled since boot)
-throttled_file=$(find /sys/devices -name get_throttled -print -quit 2> /dev/null)
+throttled_file=$(find /sys/devices/platform -maxdepth 3 -name get_throttled 2> /dev/null | head -n 1)
 if [ -n "$throttled_file" ] && flags=$(cat "$throttled_file" 2> /dev/null); then
     flags=$((flags))
     if [ $((flags & 0xD)) -ne 0 ]; then
