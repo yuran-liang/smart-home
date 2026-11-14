@@ -275,7 +275,7 @@
       "type": "prometheus",
       "uid": "victoriametrics"
      },
-     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/host\"} / node_filesystem_size_bytes{mountpoint=\"/host\"})",
+     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
      "legendFormat": "",
      "refId": "A"
     }
@@ -334,7 +334,7 @@
       "type": "prometheus",
       "uid": "victoriametrics"
      },
-     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=~\"/host/mnt/.+\"} / node_filesystem_size_bytes{mountpoint=~\"/host/mnt/.+\"})",
+     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=~\"/mnt/.+\"} / node_filesystem_size_bytes{mountpoint=~\"/mnt/.+\"})",
      "legendFormat": "",
      "refId": "A"
     }
@@ -1270,7 +1270,7 @@
       "type": "prometheus",
       "uid": "victoriametrics"
      },
-     "expr": "node_filesystem_size_bytes{mountpoint=~\"/host|/host/mnt/.+\"} - node_filesystem_avail_bytes{mountpoint=~\"/host|/host/mnt/.+\"}",
+     "expr": "node_filesystem_size_bytes{mountpoint=~\"/|/mnt/.+\"} - node_filesystem_avail_bytes{mountpoint=~\"/|/mnt/.+\"}",
      "legendFormat": "{{mountpoint}}",
      "refId": "A"
     }
