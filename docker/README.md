@@ -10,6 +10,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nodered` | `nodered/node-red:latest` | Node-RED on port 1880, flows in `$DATA_DIR/nodered/data` |
 | `samba` | `dockurr/samba` | Shares the external HDD (`$HDD_DIR`) as an SMB network drive on port 445 |
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
+| `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -113,3 +114,28 @@ Only the physical steps are manual: flash an SD card, swap cards, power cycle. T
 `scripts/check-nextcloud-update.sh` (weekly in root's crontab when `NEXTCLOUD_NOTIFY_USER` was set
 for `install.sh`) compares the running image with Docker Hub and sends a Nextcloud notification to
 that user when a newer image of the running major version, or the next major version, exists.
+
+## Exit node for a guest
+
+The optional `guest-exit` service is a separate Tailscale node that is shared with one person
+outside the tailnet. That person can send his internet traffic through this house, and nothing
+else: `guest-exit/firewall.sh` drops everything that arrives through Tailscale and is addressed
+to a private range (10/8, 172.16/12, 192.168/16, link-local, loopback, the Tailscale range and
+the IPv6 equivalents), before connection tracking and before Tailscale's own forwarding rules.
+The rules are applied before Tailscale starts and again every 30 seconds. The only exception is
+the node's own Tailscale address, where it answers DNS queries.
+
+Setup, once:
+
+1. In the Tailscale admin console, create an auth key (one-time use, not reusable, not
+   ephemeral). On the host, put it into `docker/.env` as `GUEST_EXIT_AUTHKEY`, add
+   `COMPOSE_PROFILES=guest-exit` and run `docker compose up -d`. Remove the key from `.env`
+   afterwards; the node's identity is kept in the `guest_exit_state` volume.
+2. In the admin console, open the machine `guest-exit` (name: `GUEST_EXIT_HOSTNAME`), edit its
+   route settings and allow it as an exit node.
+3. Open Share on that machine, create an invite link and send it to the guest. He accepts it with
+   his own Tailscale account and selects the node as his exit node.
+
+What it cannot do: limit the guest to certain sites (an exit node forwards everything), or hide
+that his traffic comes from this house. His traffic uses this house's upload bandwidth. To stop
+it, remove the share in the admin console or run `docker compose stop guest-exit`.
