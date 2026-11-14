@@ -54,6 +54,15 @@ set_env() {
 }
 compose() { (cd "$REPO/docker" && sudo docker compose "$@"); }
 occ() { sudo docker exec -u www-data nextcloud php occ "$@"; }
+# Ready = Apache answers. The image's entrypoint finishes unpacking and any automatic upgrade
+# before it starts Apache, so this also covers a freshly started or recreated container.
+wait_ready() {
+    for _ in $(seq 1 360); do
+        sudo docker exec nextcloud curl -fs -m 5 http://localhost/status.php 2> /dev/null | grep -q '"installed"' && return 0
+        sleep 10
+    done
+    return 1
+}
 db_root() { sudo docker exec -i nextcloud-db sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" "$@"' sh "$@"; }
 
 for key in NEXTCLOUD_DB_PASSWORD NEXTCLOUD_DB_ROOT_PASSWORD; do
@@ -99,7 +108,10 @@ set_env NEXTCLOUD_VERSION "$first_major"
 # No admin credentials in the environment, so the image's entrypoint does not install a new
 # instance; it only unpacks the code into the volume
 compose up -d nextcloud
-until sudo docker exec nextcloud test -f /var/www/html/version.php; do sleep 3; done
+wait_ready || {
+    echo "Nextcloud did not start; see: docker logs nextcloud" >&2
+    exit 1
+}
 
 echo "==> config.php"
 if ! sudo docker exec nextcloud test -f /var/www/html/config/config.php; then
@@ -133,14 +145,6 @@ fi
 
 echo "==> Upgrade, one major version at a time"
 mkdir -p "$SNAPSHOT_DIR"
-wait_ready() {
-    local since=$1
-    for _ in $(seq 1 360); do
-        sudo docker logs --since "$since" nextcloud 2>&1 | grep -q "resuming normal operations" && return 0
-        sleep 10
-    done
-    return 1
-}
 for v in $(seq "$first_major" "$MAX_MAJOR"); do
     if [ "$v" -gt "$first_major" ] && ! sudo docker pull "nextcloud:$v-apache" > /dev/null 2>&1; then
         echo "No image for $v: staying on $((v - 1))."
@@ -149,10 +153,9 @@ for v in $(seq "$first_major" "$MAX_MAJOR"); do
     echo "--- $v"
     sudo docker exec nextcloud-db sh -c 'exec mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction nextclouddb' |
         gzip > "$SNAPSHOT_DIR/db-before-$v.sql.gz"
-    since=$(date -u +%Y-%m-%dT%H:%M:%S)
     set_env NEXTCLOUD_VERSION "$v"
     compose up -d nextcloud
-    wait_ready "$since" || {
+    wait_ready || {
         echo "Nextcloud $v did not become ready; see: docker logs nextcloud" >&2
         exit 1
     }
