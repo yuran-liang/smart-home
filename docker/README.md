@@ -123,8 +123,7 @@ else: `guest-exit/firewall.sh` drops everything that arrives through Tailscale a
 to a private range (10/8, 172.16/12, 192.168/16, link-local, loopback, the Tailscale range and
 the IPv6 equivalents), before connection tracking and before Tailscale's own forwarding rules.
 The rules are applied before Tailscale starts and again every 30 seconds. The only exception is
-the node's own Tailscale address, where it answers DNS queries. The container is not in the
-tailnet's ACL as a tagged machine, and a shared node cannot reach the sharer's other machines.
+the node's own Tailscale address, where it answers DNS queries.
 
 Setup, once:
 
