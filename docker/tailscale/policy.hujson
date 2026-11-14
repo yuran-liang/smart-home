@@ -1,0 +1,39 @@
+// Access policy of the tailnet (Tailscale admin console, Access controls, JSON editor).
+// The console is the source of truth; this file is the copy that is kept in git. Change it here,
+// paste it into the console, save, and the console checks the tests below before it accepts it.
+{
+	// Tag of the exit node that is shared with a guest (docker compose profile "guest-exit").
+	// A node that joins with this tag is not tied to a user: its key does not expire.
+	"tagOwners": {
+		"tag:guest-exit": ["autogroup:admin"],
+	},
+
+	// Approve the exit node route of tagged nodes on their own, without a click in the console.
+	"autoApprovers": {
+		"exitNode": ["tag:guest-exit"],
+	},
+
+	"grants": [
+		// Allow all connections.
+		{"src": ["*"], "dst": ["*"], "ip": ["*"]},
+	],
+
+	"ssh": [
+		// Allow all users to SSH into their own devices in check mode.
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+
+	"nodeAttrs": [
+		{
+			// Funnel policy, which lets tailnet members control Funnel for their own devices
+			// (Nextcloud is published this way, see tailscale/serve.json).
+			"target": ["autogroup:member"],
+			"attr":   ["funnel"],
+		},
+	],
+}

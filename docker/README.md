@@ -120,6 +120,15 @@ copy its `/var/lib/tailscale/tailscaled.state` into the volume and start the ser
 keeps its identity. A rebuilt Pi does the same with `TAILSCALE_STATE` for `install.sh`. Never run
 the host service and the container with the same state at the same time.
 
+## Tailscale access policy
+
+`tailscale/policy.hujson` is the copy of the tailnet's access policy that is kept in git: allow
+all connections, SSH to a user's own devices, Funnel for members, and a tag for the guest exit
+node (`tag:guest-exit`, owned by the admins, its exit node route approved automatically). The
+admin console (Access controls, JSON editor) is the source of truth, and nothing applies this file
+by itself: after a change here, paste it into the console and save. Before replacing the policy
+in the console, compare it with the file to make sure nothing was changed there first.
+
 ## Rebuilding a Pi
 
 Only the physical steps are manual: flash an SD card, swap cards, power cycle. The rest is scripted
