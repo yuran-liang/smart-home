@@ -237,20 +237,30 @@ services:
       - ./guest-exit:/guest-exit:ro
 
   # ===============================
-  # Scheduled jobs (state and Nextcloud backups, HDD health, Nextcloud update check)
+  # Scheduled jobs (backups, disk health, monitoring and alerts, guest exit traffic, updates check)
   # ===============================
   # Replaces the root crontab on the host. The Docker socket lets the jobs run occ and the database
   # dump in the Nextcloud containers; the state backup needs the service data, the HDD and the
   # home-config clone; the Nextcloud backup reads the data directory (read-only) and writes a
-  # restic repository on the HDD; the health check reads the HDD's SMART data (HDD_DEVICE).
+  # restic repository on the HDD; the health check reads the SMART data of the HDD and the SSD.
+  # Host network: the monitor checks the ports of the services on the Pi (nothing connects to jobs).
   jobs:
     container_name: jobs
     build: ./jobs
     image: smart-home-jobs:local
     restart: unless-stopped
+    network_mode: host
     environment:
       - TZ=${TZ}
       - NEXTCLOUD_NOTIFY_USER=${NEXTCLOUD_NOTIFY_USER:-}
+      - ALERT_SMTP_URL=${ALERT_SMTP_URL:-}
+      - ALERT_SMTP_USER=${ALERT_SMTP_USER:-}
+      - ALERT_SMTP_PASSWORD=${ALERT_SMTP_PASSWORD:-}
+      - ALERT_EMAIL_FROM=${ALERT_EMAIL_FROM:-}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+      - MONITOR_PORTS=${MONITOR_PORTS:-mosquitto:1883 nodered:1880 homebridge:8581 samba:445 portainer:9000}
+      - GUEST_EXIT_MONTHLY_LIMIT_GB=${GUEST_EXIT_MONTHLY_LIMIT_GB:-0}
+      - SSD_SMART_TYPE=${SSD_SMART_TYPE:-sat}
       - RESTIC_REPOSITORY=/hdd/backup/nextcloud-restic
       - RESTIC_PASSWORD=${NEXTCLOUD_BACKUP_PASSWORD:-}
       - HDD_SMART_TYPE=${HDD_SMART_TYPE:-sat}
@@ -260,9 +270,11 @@ services:
     devices:
       # Without HDD_DEVICE this maps /dev/null, which the health check recognises as "no HDD"
       - ${HDD_DEVICE:-/dev/null}:/dev/hdd
+      - ${SSD_DEVICE:-/dev/null}:/dev/ssd
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR}:/data
+      - jobs_state:/state
       - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data:ro
       - ${HOME_CONFIG_DIR:-../../home-config}:/home-config:ro
       - ../scripts:/scripts:ro
@@ -309,4 +321,5 @@ volumes:
   nextcloud_db:
   nextcloud_html:
   guest_exit_state:
+  jobs_state:
   tailscale_state:

@@ -12,7 +12,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
-| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, the HDD health check and the weekly Nextcloud update check; see below |
+| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, disk health, monitoring with email alerts, guest exit traffic and the weekly Nextcloud update check; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -103,8 +103,11 @@ The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has
 | --- | --- |
 | 03:30 daily | `jobs/backup-state.sh`: home-config's `backup-state.sh` onto the HDD, keeping the newest 7 archives; refuses to run when the HDD is not mounted |
 | 04:00 daily | `jobs/backup-nextcloud.sh`: Nextcloud backup into a restic repository on the HDD (below) |
-| 07:30 daily | `jobs/check-hdd-health.sh`: SMART status of the HDD |
-| Sunday 02:00, 1st of the month 05:00 | `jobs/check-hdd-health.sh short` and `long`: SMART self-tests; the next daily check reads their result |
+| 07:30 daily | `jobs/check-disk-health.sh`: SMART status of the HDD and the SSD |
+| Sunday 02:00, 1st of the month 05:00 | `jobs/check-disk-health.sh short` and `long`: SMART self-tests; the next daily check reads their result |
+| every 5 minutes | `jobs/monitor.sh`: containers, service ports, Nextcloud, Tailscale, free space, Pi supply voltage and temperature, age of the backups (below) |
+| 23:55 daily | `jobs/guest-exit-usage.sh`: traffic of the guest exit node (below) |
+| Monday 08:00 | `jobs/weekly-report.sh`: email with open problems, free space, newest backups and guest traffic |
 | Monday 09:00 | `scripts/check-nextcloud-update.sh`: a Nextcloud notification for `NEXTCLOUD_NOTIFY_USER`; no check when it is empty |
 
 The container gets the service data (`DATA_DIR`), the Nextcloud data directory (read-only), the HDD,
@@ -113,9 +116,30 @@ device node (`HDD_DEVICE`) and the Docker socket. Output goes to the container l
 `docker logs jobs`. To run a job by hand: `docker exec jobs /jobs/backup-state.sh`. The job scripts
 are baked into the image, so `deploy.sh` rebuilds it (`docker compose up -d --build`).
 
-When a backup fails or the HDD looks unhealthy (SMART verdict, reallocated or pending sectors,
-temperature, self-test errors), the job sends a Nextcloud notification to `NEXTCLOUD_NOTIFY_USER`
-(none if it is empty; the container log has it either way).
+### Alerts and monitoring
+
+An alert is an email (`ALERT_*` in `docker/.env`: an SMTP server and an app password of the sending
+account, and the recipient) plus a Nextcloud notification for `NEXTCLOUD_NOTIFY_USER`, and always a
+line in `docker logs jobs`. Email is the main channel because it does not depend on Nextcloud or
+the Pi's services being up; each channel is skipped when its settings are empty. The jobs raise
+one when a backup fails, a disk looks unhealthy (SMART verdict, reallocated or pending sectors,
+temperature, self-test errors) or the monitor finds a problem.
+
+`jobs/monitor.sh` keeps the state of every check in the `jobs_state` volume. A problem is reported
+after `MONITOR_FAIL_AFTER` (2) failing runs in a row, repeated daily while it lasts, and a recovery
+is reported once. It checks that every container of the Compose project runs and is not unhealthy,
+that the service ports in `MONITOR_PORTS` answer (the `jobs` container is in the host network for
+this; adjust the Homebridge UI port if it is not 8581), Nextcloud's status, Tailscale, free space
+(90%) of the system disk, the Nextcloud data and the HDD, the Pi's under-voltage and throttling
+flags and CPU temperature, and twice a day the age of the state backup and of the newest Nextcloud
+snapshot (not more often: reading the HDD wakes it). A Pi that is off cannot send an alert; that
+needs a check from outside (for example a heartbeat service).
+
+`jobs/guest-exit-usage.sh` reads the byte counters of the guest exit node's `tailscale0` interface
+once a day and appends the difference to `usage.csv` in the `jobs_state` volume (`docker exec jobs cat
+/state/guest-exit/usage.csv`: date, bytes received, bytes sent). The Monday report sums the last 7
+days and the month. `GUEST_EXIT_MONTHLY_LIMIT_GB` raises an alert once a month when the traffic
+passes it; nothing is limited.
 
 ### Nextcloud backup
 
