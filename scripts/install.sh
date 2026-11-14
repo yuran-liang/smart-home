@@ -20,11 +20,13 @@
 #   HDD_FSTYPE       file system of the HDD (default: ntfs-3g)
 #   HDD_DIR          mount point of the HDD (default: /mnt/hdd)
 #   STATE_ARCHIVE    runtime state archive to restore, see above
+#   NEXTCLOUD_NOTIFY_USER  Nextcloud user who gets a notification when a newer image exists (weekly
+#                    check, see scripts/check-nextcloud-update.sh); without it no check is set up
 #   WITH_TAILSCALE   1 installs Tailscale and enables IP forwarding for a subnet router
 #   TAILSCALE_STATE  tailscaled.state of the old install; keeps the node's identity (WITH_TAILSCALE=1)
 #
 # Steps: packages, Docker, docker/.env, HDD mount, service configs, udev rule, containers,
-# daily state backup, optional Tailscale.
+# daily state backup, Nextcloud update check, optional Tailscale.
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -190,6 +192,16 @@ if [ -f "$HOME_CONFIG/scripts/backup-state.sh" ] && mountpoint -q "$HDD_DIR"; th
     fi
 else
     echo "Skipped (needs home-config's backup-state.sh and the mounted HDD)."
+fi
+
+echo "==> Nextcloud update check"
+if [ -n "${NEXTCLOUD_NOTIFY_USER:-}" ]; then
+    job="0 9 * * 1 NEXTCLOUD_NOTIFY_USER=$NEXTCLOUD_NOTIFY_USER $REPO/scripts/check-nextcloud-update.sh >> /var/log/nextcloud-update-check.log 2>&1"
+    if ! sudo crontab -l 2> /dev/null | grep -qF "check-nextcloud-update.sh"; then
+        (sudo crontab -l 2> /dev/null || true; echo "$job") | sudo crontab -
+    fi
+else
+    echo "NEXTCLOUD_NOTIFY_USER not set: skipped."
 fi
 
 if [ "$WITH_TAILSCALE" = 1 ]; then
