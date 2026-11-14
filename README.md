@@ -67,15 +67,19 @@ flowchart LR
 |---|---|---|
 | [`docker/`](docker) | Docker Compose stack for the Pi: Mosquitto, Zigbee2MQTT, Homebridge, Node-RED, Samba, Watchtower, Portainer | Docker Compose |
 | [`sensor/`](sensor) | ESP8266 firmware: reads a DHT22 every 60 s and publishes temperature and humidity via MQTT; WebSocket status page and OTA updates. Not deployed at the moment | C++, PlatformIO, Arduino |
-| [`scripts/`](scripts) | `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
+| [`scripts/`](scripts) | `install.sh`: sets up a fresh Pi; `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
 | [`.github/workflows/`](.github/workflows) | CI: validates the Compose file, lints the shell scripts and builds the sensor firmware | GitHub Actions |
 
 `docker/` and `sensor/` have their own READMEs with setup details.
 
 ## Getting started
 
-1. Start the services: `cd docker && cp .env.example .env`, adjust `.env`, restore the service
-   configs into `DATA_DIR` (see [`docker/README.md`](docker/README.md)), then `docker compose up -d`.
+1. Start the services. On a fresh Raspberry Pi OS (64-bit) `HDD_UUID=<uuid> scripts/install.sh`
+   does everything: packages, Docker, `docker/.env`, the HDD mount, the service configs from
+   home-config, the Zigbee udev rule, the containers and the daily state backup (the header of the
+   script lists its options). By hand: `cd docker && cp .env.example .env`, adjust `.env`, restore
+   the service configs into `DATA_DIR` (see [`docker/README.md`](docker/README.md)), then
+   `docker compose up -d`.
 2. Flash the sensor: copy `sensor/include/secrets.h.example` to `sensor/include/secrets.h`,
    fill in Wi-Fi credentials and the broker address, then `pio run -t upload`.
 
