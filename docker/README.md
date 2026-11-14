@@ -9,6 +9,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `zigbee2mqtt` | `koenkk/zigbee2mqtt:latest` | Zigbee bridge using the SONOFF Dongle Plus MG24, data in `$DATA_DIR/zigbee2mqtt/data` |
 | `nodered` | `nodered/node-red:latest` | Node-RED on port 1880, flows in `$DATA_DIR/nodered/data` |
 | `samba` | `dockurr/samba` | Shares the external HDD (`$HDD_DIR`) as an SMB network drive on port 445 |
+| `nextcloud`, `nextcloud-db`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database and a background job runner; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -71,3 +72,22 @@ start (its device path is missing) and Docker does not retry. `udev/99-zigbee-do
 the container whenever the dongle appears, so plugging it in is enough. Install it once per host:
 `sudo cp udev/99-zigbee-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload`. It matches the
 dongle model, not its serial number; a replacement dongle only needs the new path in `ZIGBEE_DONGLE`.
+
+## Nextcloud
+
+Nextcloud listens only on `127.0.0.1:$NEXTCLOUD_PORT`; HTTPS comes from Tailscale. `sudo tailscale
+serve --bg --https=443 http://127.0.0.1:8090` publishes it inside the tailnet at
+`https://<host>.<tailnet>.ts.net`, and `sudo tailscale funnel --bg --https=443 http://127.0.0.1:8090`
+makes the same address reachable from the internet, so the clients work without a VPN. Funnel needs
+to be enabled once for the tailnet in the Tailscale admin console; `tailscale funnel --https=443 off`
+goes back to tailnet-only. Pass the full target URL: `tailscale funnel 443` would proxy to port 443.
+With Funnel on, keep Nextcloud up to date and turn on two-factor authentication. The code and
+`config.php` live in the `nextcloud_html` volume,
+the database in `nextcloud_db`, the files in `NEXTCLOUD_DATA_DIR` on the host. `config.php` must
+contain `trusted_domains` with that address, `overwritehost`, `overwriteprotocol` = `https` and
+`trusted_proxies` with the Docker range (`172.16.0.0/12`).
+
+Watchtower leaves these containers alone: Nextcloud can only be upgraded one major version at a
+time. Set `NEXTCLOUD_VERSION` to the next major version, run `docker compose up -d nextcloud
+nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcloud`), check
+`occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`.
