@@ -292,6 +292,58 @@ services:
       - DOCKER_API_VERSION=1.44
 
   # ===============================
+  # Trend charts (optional)
+  # ===============================
+  # Beszel: a small hub (web UI, history in a SQLite file) and an agent that reads CPU, memory,
+  # temperature, disk, network and per-container usage. Off by default; COMPOSE_PROFILES=metrics
+  # in .env turns it on, and the README has the one-time pairing. The hub is on the LAN
+  # (BESZEL_PORT, default 8091, like Portainer), never behind Funnel. The agent talks to the hub
+  # through a unix socket, so it listens on no network port.
+  beszel:
+    container_name: beszel
+    profiles: ["metrics"]
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "${BESZEL_PORT:-8091}:8090"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - beszel_data:/beszel_data
+      - beszel_socket:/beszel_socket
+
+  beszel-agent:
+    container_name: beszel-agent
+    profiles: ["metrics"]
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    mem_limit: 128m
+    # Host network: the real interfaces and the Pi's temperature sensors
+    network_mode: host
+    depends_on:
+      - beszel
+    environment:
+      - TZ=${TZ}
+      - LISTEN=/beszel_socket/beszel.sock
+      # From the hub's "Add system" dialog (README, Trend charts); the agent needs both
+      - KEY=${BESZEL_KEY:-}
+      - TOKEN=${BESZEL_TOKEN:-}
+      - HUB_URL=http://127.0.0.1:${BESZEL_PORT:-8091}
+      # The HDD as an extra disk in the charts (mounts under /extra-filesystems)
+      - EXTRA_FILESYSTEMS=/extra-filesystems/hdd__Backup HDD
+    volumes:
+      - beszel_socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: bind
+        source: ${HDD_DIR}
+        target: "/extra-filesystems/hdd__Backup HDD"
+        read_only: true
+        bind:
+          propagation: rslave
+          create_host_path: false
+
+  # ===============================
   # Portainer (Web Docker Management)
   # ===============================
   portainer:
@@ -305,6 +357,8 @@ services:
       - portainer_data:/data
 
 volumes:
+  beszel_data:
+  beszel_socket:
   portainer_data:
   nextcloud_db:
   nextcloud_html:

@@ -13,6 +13,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
 | `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, the HDD health check and the weekly Nextcloud update check; see below |
+| `beszel`, `beszel-agent` | `henrygd/beszel`, `henrygd/beszel-agent` | Optional (profile `metrics`): trend charts of CPU, memory, temperature, disks and containers, UI on port `BESZEL_PORT` (8091); see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -222,3 +223,31 @@ Setup, once:
 What it cannot do: limit the guest to certain sites (an exit node forwards everything), or hide
 that his traffic comes from this house. His traffic uses this house's upload bandwidth. To stop
 it, remove the share in the admin console or run `docker compose stop guest-exit`.
+
+## Trend charts
+
+The optional `beszel` and `beszel-agent` services (profile `metrics`) draw history charts: CPU,
+load, memory, the Pi's temperature, network, the disks (system disk and the HDD) and the CPU,
+memory and network use of every container, including `guest-exit`, so the guest's traffic shows
+up as the network chart of that container. Beszel was chosen because it is small (a few tens of
+MB of memory, one SQLite file); Prometheus, Grafana and node-exporter would cost more than the
+Pi should spare next to the lights and shutters. The history is thinned out automatically (about a
+day at one-minute resolution, a month at coarse resolution), so the `beszel_data` volume stays
+small. Charts are not alerts: alerting stays with the `jobs` monitor.
+
+The hub listens on `BESZEL_PORT` on the LAN, like Portainer; from outside, use it through
+Tailscale. It is not part of the Funnel configuration and must never be published there.
+
+Setup, once:
+
+1. Add `COMPOSE_PROFILES=metrics` to `docker/.env` (`guest-exit,metrics` with the guest exit
+   node) and start only the hub: `docker compose up -d beszel` (the agent would refuse to start
+   without a key).
+2. Open `http://<pi>:8091`, create the admin account (the first account is the admin), choose
+   Add system and copy the public key and the token. Do not add the system there; the agent
+   below connects through the unix socket at `/beszel_socket/beszel.sock`: use that path as Host
+   / IP and any name.
+3. Put `BESZEL_KEY` and `BESZEL_TOKEN` into `docker/.env` and run `docker compose up -d`.
+
+Keep the admin password in a password manager. The charts and the account live in the
+`beszel_data` volume; they are not part of the state backup, and losing them only loses history.
