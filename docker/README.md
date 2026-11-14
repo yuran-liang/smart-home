@@ -9,7 +9,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `zigbee2mqtt` | `koenkk/zigbee2mqtt:latest` | Zigbee bridge using the SONOFF Dongle Plus MG24, data in `$DATA_DIR/zigbee2mqtt/data` |
 | `nodered` | `nodered/node-red:latest` | Node-RED on port 1880, flows in `$DATA_DIR/nodered/data` |
 | `samba` | `dockurr/samba` | Shares the external HDD (`$HDD_DIR`) as an SMB network drive on port 445 |
-| `nextcloud`, `nextcloud-db`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database and a background job runner; see below |
+| `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -87,10 +87,12 @@ the database in `nextcloud_db`, the files in `NEXTCLOUD_DATA_DIR` on the host. `
 contain `trusted_domains` with that address, `overwritehost`, `overwriteprotocol` = `https` and
 `trusted_proxies` with the Docker range (`172.16.0.0/12`).
 
+`config.php` also needs `memcache.local` (`\OC\Memcache\APCu`), `memcache.distributed` and `memcache.locking` (`\OC\Memcache\Redis`) and `redis` with host `nextcloud-redis`, port 6379; `restore-nextcloud.sh` writes them. `nextcloud/hsts.conf` adds the HSTS header. `occ setupchecks` lists what is left to tune.
+
 Watchtower leaves these containers alone: Nextcloud can only be upgraded one major version at a
 time. Set `NEXTCLOUD_VERSION` to the next major version, run `docker compose up -d nextcloud
 nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcloud`), check
-`occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`.
+`occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`. The MariaDB major version (`NEXTCLOUD_DB_VERSION`) changes the same way: dump the database first, set the new version and recreate `nextcloud-db`; the image upgrades the data files on start.
 
 ## Rebuilding a Pi
 

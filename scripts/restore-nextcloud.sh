@@ -84,7 +84,7 @@ first_major=${old_version%%.*}
 echo "Backup is Nextcloud $old_version."
 
 echo "==> Database"
-compose up -d nextcloud-db
+compose up -d nextcloud-db nextcloud-redis
 until db_root -e 'SELECT 1' > /dev/null 2>&1; do sleep 3; done
 tables=$(db_root -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='nextclouddb'")
 if [ "$tables" -eq 0 ]; then
@@ -132,6 +132,10 @@ if ! sudo docker exec nextcloud test -f /var/www/html/config/config.php; then
         $CONFIG["overwrite.cli.url"] = "https://" . getenv("NCHOST");
         $CONFIG["trusted_domains"] = array_values(array_unique(array_merge($CONFIG["trusted_domains"] ?? [], [getenv("NCHOST")])));
         $CONFIG["trusted_proxies"] = ["127.0.0.1", "172.16.0.0/12"];
+        $CONFIG["memcache.local"] = "\\OC\\Memcache\\APCu";
+        $CONFIG["memcache.distributed"] = "\\OC\\Memcache\\Redis";
+        $CONFIG["memcache.locking"] = "\\OC\\Memcache\\Redis";
+        $CONFIG["redis"] = ["host" => "nextcloud-redis", "port" => 6379];
         $CONFIG["check_data_directory_permissions"] = false;
         $CONFIG["maintenance"] = false;
         file_put_contents("/var/www/html/config/config.php", "<?php\n\$CONFIG = " . var_export($CONFIG, true) . ";\n");
@@ -172,6 +176,12 @@ for v in $(seq "$first_major" "$MAX_MAJOR"); do
         exit 1
     }
 done
+
+echo "==> Database row format"
+# Tables created by old versions or dumps may not use ROW_FORMAT=DYNAMIC, which Nextcloud wants
+# shellcheck disable=SC2016  # the backticks are SQL quoting, not a command substitution
+db_root -N -e 'SELECT CONCAT("ALTER TABLE `", table_name, "` ROW_FORMAT=DYNAMIC;") FROM information_schema.tables WHERE table_schema="nextclouddb" AND engine="InnoDB" AND row_format<>"Dynamic"' |
+    db_root nextclouddb
 
 echo "==> Maintenance"
 occ maintenance:mode --off || true
