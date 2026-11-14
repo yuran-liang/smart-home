@@ -229,6 +229,9 @@ services:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
       - TS_ACCEPT_DNS=false
+      # The host kernel has no legacy iptables tables; without this Tailscale cannot create its
+      # forwarding and masquerade rules and the guest gets no internet
+      - TS_DEBUG_FIREWALL_MODE=nftables
     volumes:
       - guest_exit_state:/var/lib/tailscale
       - ./guest-exit:/guest-exit:ro
