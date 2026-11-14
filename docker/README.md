@@ -12,6 +12,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
+| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state backup onto the HDD and the weekly Nextcloud update check; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -94,6 +95,17 @@ time. Set `NEXTCLOUD_VERSION` to the next major version, run `docker compose up 
 nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcloud`), check
 `occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`. The MariaDB major version (`NEXTCLOUD_DB_VERSION`) changes the same way: dump the database first, set the new version and recreate `nextcloud-db`; the image upgrades the data files on start.
 
+## Scheduled jobs
+
+The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has two entries:
+`jobs/backup-state.sh` at 03:30 every day (home-config's `backup-state.sh` onto the HDD, keeping
+the newest 14 archives; it refuses to run when the HDD is not mounted) and
+`scripts/check-nextcloud-update.sh` on Mondays at 09:00 (a Nextcloud notification for
+`NEXTCLOUD_NOTIFY_USER`; no check when it is empty). The container gets the service data
+(`DATA_DIR`), the HDD, the home-config clone (`HOME_CONFIG_DIR`, read-only), this repository's
+`scripts` and the Docker socket. Output goes to the container log: `docker logs jobs`. To run a
+job by hand: `docker exec jobs /jobs/backup-state.sh`.
+
 ## Tailscale
 
 The `tailscale` service runs in the host network, so it behaves like Tailscale installed on the
@@ -124,8 +136,8 @@ Only the physical steps are manual: flash an SD card, swap cards, power cycle. T
 5. `scripts/verify.sh` checks the services, the dongle, the HDD, Nextcloud, Tailscale and the age of
    the newest state backup. It changes nothing and exits non-zero on a failed check.
 
-`scripts/check-nextcloud-update.sh` (weekly in root's crontab when `NEXTCLOUD_NOTIFY_USER` was set
-for `install.sh`) compares the running image with Docker Hub and sends a Nextcloud notification to
+`scripts/check-nextcloud-update.sh` (weekly, run by the `jobs` service when `NEXTCLOUD_NOTIFY_USER`
+is set) compares the running image with Docker Hub and sends a Nextcloud notification to
 that user when a newer image of the running major version, or the next major version, exists.
 
 ## Exit node for a guest

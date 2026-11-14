@@ -7,7 +7,7 @@
 #
 # Usage: NEXTCLOUD_NOTIFY_USER=<admin user> scripts/check-nextcloud-update.sh
 #
-# install.sh adds it to root's crontab (weekly) when NEXTCLOUD_NOTIFY_USER is set.
+# The jobs container runs it weekly when NEXTCLOUD_NOTIFY_USER is set (docker/jobs/crontab).
 set -euo pipefail
 
 user=${NEXTCLOUD_NOTIFY_USER:?set NEXTCLOUD_NOTIFY_USER to the Nextcloud user that gets the notification}

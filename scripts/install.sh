@@ -23,10 +23,11 @@
 #   TAILSCALE_STATE  tailscaled.state of the old install; keeps the node's identity (name, address,
 #                    key expiry). Without it, set TS_AUTHKEY in docker/.env for a new node.
 #   NEXTCLOUD_NOTIFY_USER  Nextcloud user who gets a notification when a newer image exists (weekly
-#                    check, see scripts/check-nextcloud-update.sh); without it no check is set up
+#                    check by the jobs container); without it no check runs
 #
 # Steps: packages, Docker, docker/.env, HDD mount, service configs, udev rule, containers,
-# Tailscale state, containers, daily state backup, Nextcloud update check.
+# Tailscale state, containers (including the scheduled jobs: daily state backup, weekly Nextcloud
+# update check).
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -118,6 +119,12 @@ done
 nextcloud_data=$(get_env NEXTCLOUD_DATA_DIR)
 sudo install -d -o 33 -g 33 -m 750 "${nextcloud_data:-/var/nextcloud/data}"
 
+# Scheduled jobs (docker/jobs): where the home-config clone is, and who gets the Nextcloud update notice
+set_env HOME_CONFIG_DIR "$HOME_CONFIG"
+if [ -n "${NEXTCLOUD_NOTIFY_USER:-}" ]; then
+    set_env NEXTCLOUD_NOTIFY_USER "$NEXTCLOUD_NOTIFY_USER"
+fi
+
 echo "==> HDD"
 if [ -n "$HDD_UUID" ]; then
     sudo mkdir -p "$HDD_DIR"
@@ -192,7 +199,7 @@ elif [ -z "$(get_env TS_AUTHKEY)" ]; then
 fi
 
 echo "==> Containers"
-(cd "$REPO/docker" && sudo docker compose pull && sudo docker compose up -d)
+(cd "$REPO/docker" && sudo docker compose pull --ignore-buildable && sudo docker compose up -d --build)
 
 echo "==> Node-RED modules"
 # The flows need the nodes listed in nodered/data/package.json (dashboard, HomeKit, ...). They are
@@ -201,26 +208,6 @@ if [ ! -d "$DATA_DIR/nodered/data/node_modules" ]; then
     sudo docker exec nodered sh -c 'cd /data && npm install --omit=dev --no-audit --no-fund'
     sudo docker exec nodered sh -c 'cd /data/node_modules/node-red-dashboard && node fixgrid.js' || true
     sudo docker restart nodered > /dev/null
-fi
-
-echo "==> Daily state backup"
-if [ -f "$HOME_CONFIG/scripts/backup-state.sh" ] && mountpoint -q "$HDD_DIR"; then
-    job="30 3 * * * DATA_DIR=$DATA_DIR BACKUP_DIR=$HDD_DIR/backup/smart-home-state $HOME_CONFIG/scripts/backup-state.sh >> /var/log/backup-state.log 2>&1"
-    if ! sudo crontab -l 2> /dev/null | grep -qF "backup-state.sh"; then
-        (sudo crontab -l 2> /dev/null || true; echo "$job") | sudo crontab -
-    fi
-else
-    echo "Skipped (needs home-config's backup-state.sh and the mounted HDD)."
-fi
-
-echo "==> Nextcloud update check"
-if [ -n "${NEXTCLOUD_NOTIFY_USER:-}" ]; then
-    job="0 9 * * 1 NEXTCLOUD_NOTIFY_USER=$NEXTCLOUD_NOTIFY_USER $REPO/scripts/check-nextcloud-update.sh >> /var/log/nextcloud-update-check.log 2>&1"
-    if ! sudo crontab -l 2> /dev/null | grep -qF "check-nextcloud-update.sh"; then
-        (sudo crontab -l 2> /dev/null || true; echo "$job") | sudo crontab -
-    fi
-else
-    echo "NEXTCLOUD_NOTIFY_USER not set: skipped."
 fi
 
 echo "==> Done. Log out and in again for the docker group to take effect."

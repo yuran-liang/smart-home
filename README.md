@@ -76,8 +76,8 @@ flowchart LR
 
 1. Start the services. On a fresh Raspberry Pi OS (64-bit) `HDD_UUID=<uuid> scripts/install.sh`
    does everything: packages, Docker, `docker/.env`, the HDD mount, the service configs from
-   home-config, the Zigbee udev rule, the containers and the daily state backup (the header of the
-   script lists its options). By hand: `cd docker && cp .env.example .env`, adjust `.env`, restore
+   home-config, the Zigbee udev rule and the containers, including the scheduled jobs such as the daily state
+   backup (the header of the script lists its options). By hand: `cd docker && cp .env.example .env`, adjust `.env`, restore
    the service configs into `DATA_DIR` (see [`docker/README.md`](docker/README.md)), then
    `docker compose up -d`.
 2. Flash the sensor: copy `sensor/include/secrets.h.example` to `sensor/include/secrets.h`,
