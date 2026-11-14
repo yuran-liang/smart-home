@@ -13,6 +13,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
 | `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, disk health, monitoring with email alerts, guest exit traffic and the weekly Nextcloud update check; see below |
+| `grafana`, `victoriametrics`, `node-exporter`, `cadvisor`, `mqtt-exporter` | `grafana-oss`, `victoria-metrics`, `prom/node-exporter`, `cadvisor`, `kpetrem/mqtt-exporter` | Optional (profile `metrics`): one dashboard with trend charts of the Pi, the containers, the Zigbee devices and the monitor's results, on port `GRAFANA_PORT` (3000); see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -246,3 +247,47 @@ Setup, once:
 What it cannot do: limit the guest to certain sites (an exit node forwards everything), or hide
 that his traffic comes from this house. His traffic uses this house's upload bandwidth. To stop
 it, remove the share in the admin console or run `docker compose stop guest-exit`.
+
+## Dashboard and trend charts
+
+The optional `metrics` profile adds one dashboard, "Home" in Grafana, with history:
+
+- Overview: open problems, temperature, memory, system disk and HDD space, age of the newest
+  backups. "Checks" lists every check of the `jobs` monitor (containers, service ports, Nextcloud,
+  Tailscale, disks, Pi power) as OK or PROBLEM.
+- Zigbee devices: how many are online or offline, which ones are offline, battery and sensor
+  temperatures (from Zigbee2MQTT through `mqtt-exporter`).
+- The Pi: CPU, load, temperature, memory, network, and disk space over time (the disk growth).
+- Containers: CPU, memory and network of each container (`cadvisor`), including the guest exit
+  node, plus its daily and monthly traffic from `jobs/guest-exit-usage.sh`.
+
+History goes into VictoriaMetrics (`METRICS_RETENTION` months, 12 by default, a few hundred MB).
+The profile needs roughly 0.5 GB of memory (the services have memory limits, so a runaway one is
+killed instead of starving the lights and shutters); look at the "Memory per container" chart after
+the first days and turn the profile off if it is too much. Grafana is for looking: alerts stay with
+the `jobs` monitor (email). Lights and shutters are controlled in Apple Home; the dashboard only
+shows whether the devices are online and their battery.
+
+How it hangs together: `node-exporter` reads the host, and the textfile written by
+`jobs/export-metrics.sh` (every minute: the monitor's state, the backup times, the guest traffic;
+it never reads the HDD). `cadvisor` reads the containers and `mqtt-exporter` subscribes to
+`zigbee2mqtt/#` on Mosquitto. `victoriametrics` collects them every 30 seconds (`metrics/scrape.yml`)
+and Grafana reads from it. The data source and the dashboard are provisioned from
+`grafana/` (the dashboard is read-only in Grafana: change `grafana/dashboards/home.json` in git).
+
+All of it is in the host network and listens on 127.0.0.1, except Grafana: it is on the LAN on
+`GRAFANA_PORT`, like Portainer, and is reached from outside through Tailscale. It is not part of the
+Funnel configuration and must never be published there.
+
+Setup:
+
+1. Set `COMPOSE_PROFILES=metrics` (`guest-exit,metrics` with the guest exit node) and
+   `GRAFANA_ADMIN_PASSWORD` in `docker/.env`, then `docker compose up -d --build` (`deploy.sh`
+   does it; the `jobs` image has a new script).
+2. Open `http://<pi>:3000`, log in as `admin` and open the dashboard "Home". The password only
+   applies the first time Grafana starts; afterwards change it in Grafana.
+3. If Mosquitto needs a login, set `MQTT_METRICS_USER` and `MQTT_METRICS_PASSWORD`.
+
+If the container charts are empty, the kernel's memory cgroup may be off (on Raspberry Pi OS:
+`cgroup_enable=memory cgroup_memory=1` in `cmdline.txt`, then a reboot; this restarts everything,
+so plan it). The history is not part of the state backup; losing it only loses the charts.

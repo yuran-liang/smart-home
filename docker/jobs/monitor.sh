@@ -134,8 +134,10 @@ if [ -r "$temp_file" ]; then
     fi
 fi
 
-# Backups: twice a day, because reading the HDD wakes it
+# Backups: twice a day, because reading the HDD wakes it. The time of the newest backup is also kept
+# in STATE_DIR for export-metrics.sh (the dashboard).
 if [ "$(date +%M)" -lt 5 ] && { [ "$(date +%H)" = 08 ] || [ "$(date +%H)" = 20 ]; }; then
+    find /hdd/backup/smart-home-state -name 'state-*.tgz' -printf '%T@\n' 2> /dev/null | sort -n | tail -n 1 | cut -d. -f1 > "$STATE_DIR/newest-state"
     if find /hdd/backup/smart-home-state -name 'state-*.tgz' -mmin "-$((BACKUP_MAX_AGE_H * 60))" 2> /dev/null | grep -q .; then
         report backup-state ok "The state backup is fresh."
     else
@@ -143,6 +145,7 @@ if [ "$(date +%M)" -lt 5 ] && { [ "$(date +%H)" = 08 ] || [ "$(date +%H)" = 20 ]
     fi
     if [ -n "${RESTIC_PASSWORD:-}" ] && [ "$RESTIC_PASSWORD" != change-me ]; then
         snap=$(restic snapshots --host nextcloud --tag files --latest 1 --json 2> /dev/null | jq -r '.[0].time // empty' 2> /dev/null || true)
+        [ -z "$snap" ] || date -d "$snap" +%s > "$STATE_DIR/newest-nextcloud"
         if [ -n "$snap" ] && [ "$(date -d "$snap" +%s)" -gt "$(date -d "-$BACKUP_MAX_AGE_H hours" +%s)" ]; then
             report backup-nextcloud ok "The newest Nextcloud snapshot is from $snap."
         else

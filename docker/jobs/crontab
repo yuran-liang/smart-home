@@ -11,3 +11,5 @@
 */5 * * * * /jobs/monitor.sh > /proc/1/fd/1 2>&1
 55 23 * * * /jobs/guest-exit-usage.sh > /proc/1/fd/1 2>&1
 0 8 * * 1 /jobs/weekly-report.sh > /proc/1/fd/1 2>&1
+# Results of the monitor, backups and guest exit traffic as metrics for the dashboard
+* * * * * /jobs/export-metrics.sh > /proc/1/fd/1 2>&1

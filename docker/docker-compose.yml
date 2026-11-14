@@ -304,6 +304,139 @@ services:
       - DOCKER_API_VERSION=1.44
 
   # ===============================
+  # Dashboard and trend charts (optional)
+  # ===============================
+  # Grafana (the one dashboard) on VictoriaMetrics (history, 12 months, small). Off by default;
+  # COMPOSE_PROFILES=metrics in .env turns it on. Data comes from node-exporter (host, Pi
+  # temperature, disks, the monitor's results), cAdvisor (containers) and mqtt-exporter (Zigbee2MQTT
+  # devices). Everything is in the host network and listens on 127.0.0.1 except Grafana, which is
+  # on the LAN (GRAFANA_PORT) like Portainer and never behind Funnel. Memory limits keep it small.
+  victoriametrics:
+    container_name: victoriametrics
+    profiles: ["metrics"]
+    image: victoriametrics/victoria-metrics:stable
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 384m
+    command:
+      - -httpListenAddr=127.0.0.1:8428
+      - -storageDataPath=/storage
+      - -retentionPeriod=${METRICS_RETENTION:-12}
+      - -promscrape.config=/etc/metrics/scrape.yml
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - victoriametrics_data:/storage
+      - ./metrics/scrape.yml:/etc/metrics/scrape.yml:ro
+
+  grafana:
+    container_name: grafana
+    profiles: ["metrics"]
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 384m
+    depends_on:
+      - victoriametrics
+    environment:
+      - TZ=${TZ}
+      - GF_SERVER_HTTP_PORT=${GRAFANA_PORT:-3000}
+      # Only used when the Grafana database is created; change it in Grafana afterwards
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/home.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  node-exporter:
+    container_name: node-exporter
+    profiles: ["metrics"]
+    image: prom/node-exporter:latest
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    mem_limit: 64m
+    command:
+      - --web.listen-address=127.0.0.1:9100
+      - --path.rootfs=/host
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.loadavg
+      - --collector.filesystem
+      - --collector.netdev
+      - --collector.diskstats
+      - --collector.hwmon
+      - --collector.thermal_zone
+      - --collector.uname
+      - --collector.time
+      - --collector.stat
+      - --collector.textfile
+      - --collector.textfile.directory=/state/metrics
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($|/)
+    volumes:
+      # rslave: the HDD, when it is mounted after the container started, shows up too
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          propagation: rslave
+      # Results of the monitor and the backups, written by the jobs service
+      - jobs_state:/state:ro
+
+  cadvisor:
+    container_name: cadvisor
+    profiles: ["metrics"]
+    image: ghcr.io/google/cadvisor:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 192m
+    command:
+      - --listen_ip=127.0.0.1
+      - --port=9101
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service
+      - --disable_metrics=percpu,sched,tcp,udp,advtcp,referenced_memory,cpu_topology,resctrl,hugetlb,process,memory_numa,disk,diskIO
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+
+  # Zigbee2MQTT devices (state, battery, temperature, availability) as metrics
+  mqtt-exporter:
+    container_name: mqtt-exporter
+    profiles: ["metrics"]
+    image: kpetrem/mqtt-exporter:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 128m
+    depends_on:
+      - mosquitto
+    environment:
+      - TZ=${TZ}
+      - MQTT_ADDRESS=127.0.0.1
+      - MQTT_PORT=1883
+      - MQTT_TOPIC=zigbee2mqtt/#
+      - MQTT_USERNAME=${MQTT_METRICS_USER:-}
+      - MQTT_PASSWORD=${MQTT_METRICS_PASSWORD:-}
+      - PROMETHEUS_ADDRESS=127.0.0.1
+      - PROMETHEUS_PORT=9344
+      - ZIGBEE2MQTT_AVAILABILITY=True
+      # A device that stays silent for a day disappears from the charts instead of freezing
+      - MQTT_METRICS_EXPIRE_SECONDS=86400
+
+  # ===============================
   # Portainer (Web Docker Management)
   # ===============================
   portainer:
@@ -317,6 +450,8 @@ services:
       - portainer_data:/data
 
 volumes:
+  grafana_data:
+  victoriametrics_data:
   portainer_data:
   nextcloud_db:
   nextcloud_html:
