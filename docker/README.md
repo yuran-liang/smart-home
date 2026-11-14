@@ -65,3 +65,9 @@ The share also picks up the HDD when it is mounted after the container started, 
 The HDD behind the Samba share spins down on its own when idle (drive firmware; no `hd-idle`
 needed). The first access after that takes about 20 seconds while it spins up. A Finder or
 Explorer window left open on the share keeps polling it and stops it from spinning down.
+
+If the Zigbee dongle is not plugged in or not detected when the stack starts, `zigbee2mqtt` cannot
+start (its device path is missing) and Docker does not retry. `udev/99-zigbee-dongle.rules` restarts
+the container whenever the dongle appears, so plugging it in is enough. Install it once per host:
+`sudo cp udev/99-zigbee-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload`. It matches the
+dongle model, not its serial number; a replacement dongle only needs the new path in `ZIGBEE_DONGLE`.
