@@ -10,6 +10,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nodered` | `nodered/node-red:latest` | Node-RED on port 1880, flows in `$DATA_DIR/nodered/data` |
 | `samba` | `dockurr/samba` | Shares the external HDD (`$HDD_DIR`) as an SMB network drive on port 445 |
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
+| `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
@@ -76,13 +77,11 @@ dongle model, not its serial number; a replacement dongle only needs the new pat
 
 ## Nextcloud
 
-Nextcloud listens only on `127.0.0.1:$NEXTCLOUD_PORT`; HTTPS comes from Tailscale. `sudo tailscale
-serve --bg --https=443 http://127.0.0.1:8090` publishes it inside the tailnet at
-`https://<host>.<tailnet>.ts.net`, and `sudo tailscale funnel --bg --https=443 http://127.0.0.1:8090`
-makes the same address reachable from the internet, so the clients work without a VPN. Funnel needs
-to be enabled once for the tailnet in the Tailscale admin console; `tailscale funnel --https=443 off`
-goes back to tailnet-only. Pass the full target URL: `tailscale funnel 443` would proxy to port 443.
-With Funnel on, keep Nextcloud up to date and turn on two-factor authentication. The code and
+Nextcloud listens only on `127.0.0.1:$NEXTCLOUD_PORT`; HTTPS comes from the `tailscale` service,
+which `tailscale/serve.json` tells to publish it at `https://<host>.<tailnet>.ts.net`. The same
+file turns Funnel on (`AllowFunnel`), so the address is reachable from the internet and the
+clients work without a VPN; set it to `false` for tailnet-only access. Funnel has to be enabled
+once for the tailnet in the Tailscale admin console. With Funnel on, keep Nextcloud up to date and turn on two-factor authentication. The code and
 `config.php` live in the `nextcloud_html` volume,
 the database in `nextcloud_db`, the files in `NEXTCLOUD_DATA_DIR` on the host. `config.php` must
 contain `trusted_domains` with that address, `overwritehost`, `overwriteprotocol` = `https` and
@@ -95,6 +94,20 @@ time. Set `NEXTCLOUD_VERSION` to the next major version, run `docker compose up 
 nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcloud`), check
 `occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`. The MariaDB major version (`NEXTCLOUD_DB_VERSION`) changes the same way: dump the database first, set the new version and recreate `nextcloud-db`; the image upgrades the data files on start.
 
+## Tailscale
+
+The `tailscale` service runs in the host network, so it behaves like Tailscale installed on the
+host: the Pi has its own Tailscale address and can offer networks to the tailnet. Its identity
+is the state in the `tailscale_state` volume (name, address, key expiry). Settings come from
+`.env`: `TS_HOSTNAME` (keep the existing name; it is part of the HTTPS address), `TS_ROUTES` (a
+network to offer, e.g. the LAN; allow it in the admin console) and `TS_AUTHKEY` (only for a node
+without state). Run Tailscale commands with `docker exec tailscale tailscale <command>`.
+
+To move a host install into the container, stop it (`sudo systemctl disable --now tailscaled`),
+copy its `/var/lib/tailscale/tailscaled.state` into the volume and start the service; the node
+keeps its identity. A rebuilt Pi does the same with `TAILSCALE_STATE` for `install.sh`. Never run
+the host service and the container with the same state at the same time.
+
 ## Rebuilding a Pi
 
 Only the physical steps are manual: flash an SD card, swap cards, power cycle. The rest is scripted
@@ -105,7 +118,7 @@ Only the physical steps are manual: flash an SD card, swap cards, power cycle. T
    its identifiers and grows the root partition. `HOSTKEYS_DIR=<dir with the old ssh_host_* files>`
    keeps the host identity, so SSH clients do not warn. Shut down, remove the SD card, power on.
 3. `HDD_UUID=<uuid> STATE_ARCHIVE=<state-*.tgz> NEXTCLOUD_NOTIFY_USER=<admin> scripts/install.sh`
-   with home-config cloned next to this repository (see `install.sh` for all options).
+   with home-config cloned next to this repository (see `install.sh` for all options). `TAILSCALE_STATE=<tailscaled.state of the old install>` keeps the Tailscale identity.
 4. `BACKUP_DIR=<dir> NEXTCLOUD_HOST=<host>.<tailnet>.ts.net scripts/restore-nextcloud.sh` restores
    Nextcloud and upgrades it one major version at a time, with a database dump before each step.
 5. `scripts/verify.sh` checks the services, the dongle, the HDD, Nextcloud, Tailscale and the age of

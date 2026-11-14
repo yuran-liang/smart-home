@@ -128,7 +128,7 @@ services:
       - nextcloud-db
       - nextcloud-redis
     ports:
-      # Localhost only: reached through `tailscale serve` (HTTPS), not directly from the LAN
+      # Localhost only: reached through the tailscale container (HTTPS), not directly from the LAN
       - "127.0.0.1:${NEXTCLOUD_PORT:-8090}:80"
     environment:
       - TZ=${TZ}
@@ -164,6 +164,39 @@ services:
       - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data
     labels:
       - com.centurylinklabs.watchtower.enable=false
+
+  # ===============================
+  # Tailscale (VPN, HTTPS address of Nextcloud)
+  # ===============================
+  # Runs in the host network, so it behaves like Tailscale installed on the host (the Pi's own
+  # Tailscale address, subnet routes). The node identity is the state in the tailscale_state
+  # volume; tailscale/serve.json publishes Nextcloud on the node's HTTPS address, and "AllowFunnel"
+  # makes that address reachable from the internet (set it to false for tailnet-only).
+  tailscale:
+    container_name: tailscale
+    image: tailscale/tailscale:stable
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=${TZ}
+      # Only for a node without state (first start); empty otherwise
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      # Keep the existing name: it is part of the node's HTTPS address. Empty = host name.
+      - TS_HOSTNAME=${TS_HOSTNAME:-}
+      # Networks to offer to the tailnet, e.g. the LAN (comma-separated); empty = none
+      - TS_ROUTES=${TS_ROUTES:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_ACCEPT_DNS=false
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./tailscale/serve.json:/config/serve.json:ro
 
   # ===============================
   # Exit node for a guest (optional)
@@ -233,3 +266,4 @@ volumes:
   nextcloud_db:
   nextcloud_html:
   guest_exit_state:
+  tailscale_state:

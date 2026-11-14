@@ -20,13 +20,13 @@
 #   HDD_FSTYPE       file system of the HDD (default: ntfs-3g)
 #   HDD_DIR          mount point of the HDD (default: /mnt/hdd)
 #   STATE_ARCHIVE    runtime state archive to restore, see above
+#   TAILSCALE_STATE  tailscaled.state of the old install; keeps the node's identity (name, address,
+#                    key expiry). Without it, set TS_AUTHKEY in docker/.env for a new node.
 #   NEXTCLOUD_NOTIFY_USER  Nextcloud user who gets a notification when a newer image exists (weekly
 #                    check, see scripts/check-nextcloud-update.sh); without it no check is set up
-#   WITH_TAILSCALE   1 installs Tailscale and enables IP forwarding for a subnet router
-#   TAILSCALE_STATE  tailscaled.state of the old install; keeps the node's identity (WITH_TAILSCALE=1)
 #
 # Steps: packages, Docker, docker/.env, HDD mount, service configs, udev rule, containers,
-# daily state backup, Nextcloud update check, optional Tailscale.
+# Tailscale state, containers, daily state backup, Nextcloud update check.
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -45,7 +45,7 @@ HDD_UUID=${HDD_UUID:-}
 HDD_FSTYPE=${HDD_FSTYPE:-ntfs-3g}
 HDD_DIR=${HDD_DIR:-/mnt/hdd}
 STATE_ARCHIVE=${STATE_ARCHIVE:-}
-WITH_TAILSCALE=${WITH_TAILSCALE:-0}
+TAILSCALE_STATE=${TAILSCALE_STATE:-}
 ENV_FILE=$REPO/docker/.env
 
 if [ ! -f "$HOME_CONFIG/scripts/restore.py" ]; then
@@ -172,6 +172,25 @@ if [ -f "$REPO/docker/udev/99-zigbee-dongle.rules" ]; then
     sudo udevadm control --reload
 fi
 
+echo "==> Tailscale"
+# Tailscale runs as a container in the host network. A subnet router needs IP forwarding on the host.
+if [ -n "$(get_env TS_ROUTES)" ]; then
+    printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' |
+        sudo tee /etc/sysctl.d/99-tailscale.conf > /dev/null
+    sudo sysctl -p /etc/sysctl.d/99-tailscale.conf > /dev/null
+fi
+if [ -n "$TAILSCALE_STATE" ]; then
+    # Create the volume through Compose (right name and labels), then put the old state into it
+    (cd "$REPO/docker" && sudo docker compose up --no-start tailscale)
+    ts_volume=$(sudo docker volume ls -q | grep '_tailscale_state$' | head -n 1)
+    if ! sudo docker run --rm --entrypoint sh -v "$ts_volume:/var/lib/tailscale" tailscale/tailscale:stable -c 'test -s /var/lib/tailscale/tailscaled.state'; then
+        sudo docker run --rm --entrypoint sh -v "$ts_volume:/var/lib/tailscale" -v "$TAILSCALE_STATE:/in/tailscaled.state:ro" \
+            tailscale/tailscale:stable -c 'cp /in/tailscaled.state /var/lib/tailscale/tailscaled.state && chmod 600 /var/lib/tailscale/tailscaled.state'
+    fi
+elif [ -z "$(get_env TS_AUTHKEY)" ]; then
+    echo "No TAILSCALE_STATE and no TS_AUTHKEY: the node waits for a login (see: docker logs tailscale)."
+fi
+
 echo "==> Containers"
 (cd "$REPO/docker" && sudo docker compose pull && sudo docker compose up -d)
 
@@ -202,35 +221,6 @@ if [ -n "${NEXTCLOUD_NOTIFY_USER:-}" ]; then
     fi
 else
     echo "NEXTCLOUD_NOTIFY_USER not set: skipped."
-fi
-
-if [ "$WITH_TAILSCALE" = 1 ]; then
-    echo "==> Tailscale"
-    if ! command -v tailscale > /dev/null; then
-        # Signed apt repository instead of piping an install script into a shell. Raspberry Pi OS
-        # uses the Debian repository.
-        # shellcheck source=/dev/null
-        . /etc/os-release
-        ts_dist=debian
-        [ "$ID" = ubuntu ] && ts_dist=ubuntu
-        sudo curl -fsSL "https://pkgs.tailscale.com/stable/$ts_dist/$VERSION_CODENAME.noarmor.gpg" \
-            -o /usr/share/keyrings/tailscale-archive-keyring.gpg
-        sudo curl -fsSL "https://pkgs.tailscale.com/stable/$ts_dist/$VERSION_CODENAME.tailscale-keyring.list" \
-            -o /etc/apt/sources.list.d/tailscale.list
-        sudo apt-get update
-        sudo apt-get install -y tailscale
-    fi
-    # Keep the node identity of an earlier install (name, address, key expiry) by restoring its
-    # state file before the first start
-    if [ -n "${TAILSCALE_STATE:-}" ] && [ ! -s /var/lib/tailscale/tailscaled.state ]; then
-        sudo systemctl stop tailscaled
-        sudo install -m 600 "$TAILSCALE_STATE" /var/lib/tailscale/tailscaled.state
-        sudo systemctl start tailscaled
-    fi
-    printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' |
-        sudo tee /etc/sysctl.d/99-tailscale.conf > /dev/null
-    sudo sysctl -p /etc/sysctl.d/99-tailscale.conf > /dev/null
-    echo "Log in with: sudo tailscale up (open the printed link in a browser)."
 fi
 
 echo "==> Done. Log out and in again for the docker group to take effect."
