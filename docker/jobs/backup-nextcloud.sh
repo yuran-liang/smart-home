@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # shellcheck source=lib.sh
-. /jobs/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 KEEP_DAILY=${KEEP_DAILY:-7}
 KEEP_WEEKLY=${KEEP_WEEKLY:-4}
@@ -24,7 +24,7 @@ cleanup() {
     [ -z "$tmp" ] || rm -f "$tmp"
     if [ "$status" -ne 0 ]; then
         echo "Nextcloud backup failed." >&2
-        notify "Nextcloud backup failed" "The nightly backup to the HDD failed; see: docker logs jobs"
+        alert "Nextcloud backup failed" "The nightly backup to the HDD failed; see: docker logs jobs"
     fi
 }
 trap cleanup EXIT
