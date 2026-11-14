@@ -99,7 +99,7 @@ nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcl
 
 The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has two entries:
 `jobs/backup-state.sh` at 03:30 every day (home-config's `backup-state.sh` onto the HDD, keeping
-the newest 14 archives; it refuses to run when the HDD is not mounted) and
+the newest 7 archives; it refuses to run when the HDD is not mounted) and
 `scripts/check-nextcloud-update.sh` on Mondays at 09:00 (a Nextcloud notification for
 `NEXTCLOUD_NOTIFY_USER`; no check when it is empty). The container gets the service data
 (`DATA_DIR`), the HDD, the home-config clone (`HOME_CONFIG_DIR`, read-only), this repository's
