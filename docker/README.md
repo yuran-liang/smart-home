@@ -132,7 +132,9 @@ Setup, once:
    `COMPOSE_PROFILES=guest-exit` and run `docker compose up -d`. Remove the key from `.env`
    afterwards; the node's identity is kept in the `guest_exit_state` volume.
 2. In the admin console, open the machine `guest-exit` (name: `GUEST_EXIT_HOSTNAME`), edit its
-   route settings and allow it as an exit node.
+   route settings and allow it as an exit node. Also disable its key expiry: a node key expires
+   after 180 days by default, and the node then drops off until someone logs it in again. The
+   auth key from step 1 is a different thing; it is only used once, at the first start.
 3. Open Share on that machine, create an invite link and send it to the guest. He accepts it with
    his own Tailscale account and selects the node as his exit node.
 
