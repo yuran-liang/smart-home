@@ -166,6 +166,40 @@ services:
       - com.centurylinklabs.watchtower.enable=false
 
   # ===============================
+  # Exit node for a guest (optional)
+  # ===============================
+  # A separate Tailscale node that is shared with one guest, who can send his internet traffic
+  # through this house but cannot reach any private network (firewall.sh). Off by default; set
+  # COMPOSE_PROFILES=guest-exit in .env and see the README for the Tailscale steps.
+  guest-exit:
+    container_name: guest-exit
+    profiles: ["guest-exit"]
+    image: tailscale/tailscale:stable
+    restart: unless-stopped
+    hostname: ${GUEST_EXIT_HOSTNAME:-guest-exit}
+    entrypoint: ["/guest-exit/entrypoint.sh"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    environment:
+      - TZ=${TZ}
+      # Only needed for the first start; the node's identity is kept in the volume afterwards
+      - TS_AUTHKEY=${GUEST_EXIT_AUTHKEY:-}
+      - TS_HOSTNAME=${GUEST_EXIT_HOSTNAME:-guest-exit}
+      - TS_EXTRA_ARGS=--advertise-exit-node
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_ACCEPT_DNS=false
+    volumes:
+      - guest_exit_state:/var/lib/tailscale
+      - ./guest-exit:/guest-exit:ro
+
+  # ===============================
   # Watchtower (Auto-update for containers)
   # ===============================
   watchtower:
@@ -198,3 +232,4 @@ volumes:
   portainer_data:
   nextcloud_db:
   nextcloud_html:
+  guest_exit_state:
