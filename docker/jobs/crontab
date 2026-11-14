@@ -1,3 +1,9 @@
 # m h dom mon dow  command (output goes to the container log)
 30 3 * * * /jobs/backup-state.sh > /proc/1/fd/1 2>&1
+0 4 * * * /jobs/backup-nextcloud.sh > /proc/1/fd/1 2>&1
 0 9 * * 1 [ -n "$NEXTCLOUD_NOTIFY_USER" ] && /scripts/check-nextcloud-update.sh > /proc/1/fd/1 2>&1
+# HDD health: read the status every morning; self-tests run on Sunday 02:00 (short) and on the 1st
+# of the month at 05:00 (long, ends long after the backup has finished)
+30 7 * * * /jobs/check-hdd-health.sh > /proc/1/fd/1 2>&1
+0 2 * * 0 /jobs/check-hdd-health.sh short > /proc/1/fd/1 2>&1
+0 5 1 * * /jobs/check-hdd-health.sh long > /proc/1/fd/1 2>&1

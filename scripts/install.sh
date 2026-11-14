@@ -26,8 +26,8 @@
 #                    check by the jobs container); without it no check runs
 #
 # Steps: packages, Docker, docker/.env, HDD mount, service configs, udev rule, containers,
-# Tailscale state, containers (including the scheduled jobs: daily state backup, weekly Nextcloud
-# update check).
+# Tailscale state, containers (including the scheduled jobs: daily state and Nextcloud backups, HDD
+# health check, weekly Nextcloud update check).
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -110,7 +110,7 @@ fi
 # Nextcloud: random database passwords, and the data directory owned by www-data (uid 33), which is
 # the user inside the container. Without these, the stack would start an empty Nextcloud that anyone
 # who reaches it can set up.
-for key in NEXTCLOUD_DB_PASSWORD NEXTCLOUD_DB_ROOT_PASSWORD; do
+for key in NEXTCLOUD_DB_PASSWORD NEXTCLOUD_DB_ROOT_PASSWORD NEXTCLOUD_BACKUP_PASSWORD; do
     if [ "$(get_env "$key")" = change-me ]; then
         set_env "$key" "$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
         echo "Generated $key in $ENV_FILE."

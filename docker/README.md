@@ -12,7 +12,7 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
-| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state backup onto the HDD and the weekly Nextcloud update check; see below |
+| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, the HDD health check and the weekly Nextcloud update check; see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -97,14 +97,61 @@ nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcl
 
 ## Scheduled jobs
 
-The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has two entries:
-`jobs/backup-state.sh` at 03:30 every day (home-config's `backup-state.sh` onto the HDD, keeping
-the newest 7 archives; it refuses to run when the HDD is not mounted) and
-`scripts/check-nextcloud-update.sh` on Mondays at 09:00 (a Nextcloud notification for
-`NEXTCLOUD_NOTIFY_USER`; no check when it is empty). The container gets the service data
-(`DATA_DIR`), the HDD, the home-config clone (`HOME_CONFIG_DIR`, read-only), this repository's
-`scripts` and the Docker socket. Output goes to the container log: `docker logs jobs`. To run a
-job by hand: `docker exec jobs /jobs/backup-state.sh`.
+The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has these entries:
+
+| When | Job |
+| --- | --- |
+| 03:30 daily | `jobs/backup-state.sh`: home-config's `backup-state.sh` onto the HDD, keeping the newest 7 archives; refuses to run when the HDD is not mounted |
+| 04:00 daily | `jobs/backup-nextcloud.sh`: Nextcloud backup into a restic repository on the HDD (below) |
+| 07:30 daily | `jobs/check-hdd-health.sh`: SMART status of the HDD |
+| Sunday 02:00, 1st of the month 05:00 | `jobs/check-hdd-health.sh short` and `long`: SMART self-tests; the next daily check reads their result |
+| Monday 09:00 | `scripts/check-nextcloud-update.sh`: a Nextcloud notification for `NEXTCLOUD_NOTIFY_USER`; no check when it is empty |
+
+The container gets the service data (`DATA_DIR`), the Nextcloud data directory (read-only), the HDD,
+the home-config clone (`HOME_CONFIG_DIR`, read-only), this repository's `scripts`, the HDD's
+device node (`HDD_DEVICE`) and the Docker socket. Output goes to the container log:
+`docker logs jobs`. To run a job by hand: `docker exec jobs /jobs/backup-state.sh`. The job scripts
+are baked into the image, so `deploy.sh` rebuilds it (`docker compose up -d --build`).
+
+When a backup fails or the HDD looks unhealthy (SMART verdict, reallocated or pending sectors,
+temperature, self-test errors), the job sends a Nextcloud notification to `NEXTCLOUD_NOTIFY_USER`
+(none if it is empty; the container log has it either way).
+
+### Nextcloud backup
+
+`jobs/backup-nextcloud.sh` writes a [restic](https://restic.net) repository to
+`$HDD_DIR/backup/nextcloud-restic` with three kinds of snapshot: `files` (the data directory,
+without the generated previews), `db` (a `mariadb-dump`) and `config` (`config.php`). The first run
+copies everything and takes hours (start it by hand: `docker exec -d jobs /jobs/backup-nextcloud.sh`);
+later runs only read the data directory and store what changed. It runs at low CPU and disk priority.
+The database is dumped before the files are read, so a restore never lacks a file that the database
+knows. Retention: 7 daily, 4 weekly and 6 monthly snapshots per kind (`KEEP_DAILY`, `KEEP_WEEKLY`,
+`KEEP_MONTHLY` in the container environment). On Sundays the job also prunes the repository and
+checks a 2% sample of its data.
+
+The repository is encrypted with `NEXTCLOUD_BACKUP_PASSWORD` from `docker/.env` (`install.sh`
+generates it). **Keep a copy of the password outside the Pi**: without it the backup cannot be
+read. An existing host needs the variables once, by hand: add `NEXTCLOUD_BACKUP_PASSWORD=<random>`
+and, for the health check, `HDD_DEVICE=/dev/disk/by-id/<the HDD>` to `docker/.env` (see
+`.env.example`), then deploy.
+
+Restore (the repository and its password are in the `jobs` container's environment; this is not
+yet wired into `scripts/restore-nextcloud.sh`, which still expects the tar and dump layout):
+
+```sh
+docker exec jobs restic snapshots
+# Everything of the newest snapshots into /hdd/restore, e.g. for a new Pi (data directory under
+# /hdd/restore/var/nextcloud/data, dump as /hdd/restore/nextclouddb.sql.gz, config.php under config/)
+docker exec jobs restic restore latest --tag files --target /hdd/restore
+docker exec jobs restic restore latest --tag db --target /hdd/restore
+docker exec jobs restic restore latest --tag config --target /hdd/restore
+# One file or directory from a day in the past
+docker exec jobs restic restore <snapshot id> --tag files --target /hdd/restore --include '/var/nextcloud/data/<user>/files/<path>'
+```
+
+After restoring files into a data directory, run `occ files:scan --all`. Without a mounted HDD the
+backup does not run. Not covered: the HDD is in the same house as the Pi, so this is no protection
+against fire or theft (an off-site copy of the repository, `restic copy`, is still open).
 
 ## Tailscale
 

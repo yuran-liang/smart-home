@@ -101,7 +101,7 @@ written=$(remote "cd $HOME_CONFIG && DATA_DIR=$DATA_DIR python3 scripts/restore.
 echo "${written:-  (no config changes)}"
 
 echo "==> Applying docker-compose.yml"
-remote "cd $SMART_HOME/docker && docker compose up -d"
+remote "cd $SMART_HOME/docker && docker compose up -d --build"
 
 # Each service keeps its config under DATA_DIR/<service name>/
 services=$(echo "$written" | sed -n "s|^write $DATA_DIR/\([^/]*\)/.*|\1|p" | sort -u | tr '\n' ' ')

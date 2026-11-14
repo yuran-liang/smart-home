@@ -237,10 +237,12 @@ services:
       - ./guest-exit:/guest-exit:ro
 
   # ===============================
-  # Scheduled jobs (state backup, Nextcloud update check)
+  # Scheduled jobs (state and Nextcloud backups, HDD health, Nextcloud update check)
   # ===============================
-  # Replaces the root crontab on the host. The Docker socket lets the update check run occ in the
-  # Nextcloud container; the state backup needs the service data, the HDD and the home-config clone.
+  # Replaces the root crontab on the host. The Docker socket lets the jobs run occ and the database
+  # dump in the Nextcloud containers; the state backup needs the service data, the HDD and the
+  # home-config clone; the Nextcloud backup reads the data directory (read-only) and writes a
+  # restic repository on the HDD; the health check reads the HDD's SMART data (HDD_DEVICE).
   jobs:
     container_name: jobs
     build: ./jobs
@@ -249,9 +251,19 @@ services:
     environment:
       - TZ=${TZ}
       - NEXTCLOUD_NOTIFY_USER=${NEXTCLOUD_NOTIFY_USER:-}
+      - RESTIC_REPOSITORY=/hdd/backup/nextcloud-restic
+      - RESTIC_PASSWORD=${NEXTCLOUD_BACKUP_PASSWORD:-}
+      - HDD_SMART_TYPE=${HDD_SMART_TYPE:-sat}
+    # SMART commands through the USB bridge need raw device access
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      # Without HDD_DEVICE this maps /dev/null, which the health check recognises as "no HDD"
+      - ${HDD_DEVICE:-/dev/null}:/dev/hdd
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR}:/data
+      - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data:ro
       - ${HOME_CONFIG_DIR:-../../home-config}:/home-config:ro
       - ../scripts:/scripts:ro
       - type: bind
