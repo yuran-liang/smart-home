@@ -1,10 +1,10 @@
-# Scheduled jobs of the stack: the daily state and Nextcloud backups, the HDD health check and the
-# weekly Nextcloud update check.
+# Scheduled jobs of the stack: backups, disk health check, monitoring and email alerts, guest exit
+# traffic, the weekly report and the weekly Nextcloud update check.
 # docker:cli brings the Docker client (the update check runs occ in the Nextcloud container); the
 # scripts themselves are mounted from the repositories, not baked into the image.
 FROM docker:cli
 
-RUN apk add --no-cache bash coreutils tar curl jq tzdata restic smartmontools
+RUN apk add --no-cache bash coreutils findutils tar curl jq tzdata restic smartmontools
 
 COPY crontab /etc/crontabs/root
 COPY *.sh /jobs/

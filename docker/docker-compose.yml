@@ -237,20 +237,30 @@ services:
       - ./guest-exit:/guest-exit:ro
 
   # ===============================
-  # Scheduled jobs (state and Nextcloud backups, HDD health, Nextcloud update check)
+  # Scheduled jobs (backups, disk health, monitoring and alerts, guest exit traffic, updates check)
   # ===============================
   # Replaces the root crontab on the host. The Docker socket lets the jobs run occ and the database
   # dump in the Nextcloud containers; the state backup needs the service data, the HDD and the
   # home-config clone; the Nextcloud backup reads the data directory (read-only) and writes a
-  # restic repository on the HDD; the health check reads the HDD's SMART data (HDD_DEVICE).
+  # restic repository on the HDD; the health check reads the SMART data of the HDD and the SSD.
+  # Host network: the monitor checks the ports of the services on the Pi (nothing connects to jobs).
   jobs:
     container_name: jobs
     build: ./jobs
     image: smart-home-jobs:local
     restart: unless-stopped
+    network_mode: host
     environment:
       - TZ=${TZ}
       - NEXTCLOUD_NOTIFY_USER=${NEXTCLOUD_NOTIFY_USER:-}
+      - ALERT_SMTP_URL=${ALERT_SMTP_URL:-}
+      - ALERT_SMTP_USER=${ALERT_SMTP_USER:-}
+      - ALERT_SMTP_PASSWORD=${ALERT_SMTP_PASSWORD:-}
+      - ALERT_EMAIL_FROM=${ALERT_EMAIL_FROM:-}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+      - MONITOR_PORTS=${MONITOR_PORTS:-mosquitto:1883 nodered:1880 homebridge:8581 samba:445 portainer:9000}
+      - GUEST_EXIT_MONTHLY_LIMIT_GB=${GUEST_EXIT_MONTHLY_LIMIT_GB:-0}
+      - SSD_SMART_TYPE=${SSD_SMART_TYPE:-sat}
       - RESTIC_REPOSITORY=/hdd/backup/nextcloud-restic
       - RESTIC_PASSWORD=${NEXTCLOUD_BACKUP_PASSWORD:-}
       - HDD_SMART_TYPE=${HDD_SMART_TYPE:-sat}
@@ -260,9 +270,11 @@ services:
     devices:
       # Without HDD_DEVICE this maps /dev/null, which the health check recognises as "no HDD"
       - ${HDD_DEVICE:-/dev/null}:/dev/hdd
+      - ${SSD_DEVICE:-/dev/null}:/dev/ssd
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR}:/data
+      - jobs_state:/state
       - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data:ro
       - ${HOME_CONFIG_DIR:-../../home-config}:/home-config:ro
       - ../scripts:/scripts:ro
@@ -292,56 +304,137 @@ services:
       - DOCKER_API_VERSION=1.44
 
   # ===============================
-  # Trend charts (optional)
+  # Dashboard and trend charts (optional)
   # ===============================
-  # Beszel: a small hub (web UI, history in a SQLite file) and an agent that reads CPU, memory,
-  # temperature, disk, network and per-container usage. Off by default; COMPOSE_PROFILES=metrics
-  # in .env turns it on, and the README has the one-time pairing. The hub is on the LAN
-  # (BESZEL_PORT, default 8091, like Portainer), never behind Funnel. The agent talks to the hub
-  # through a unix socket, so it listens on no network port.
-  beszel:
-    container_name: beszel
+  # Grafana (the one dashboard) on VictoriaMetrics (history, 12 months, small). Off by default;
+  # COMPOSE_PROFILES=metrics in .env turns it on. Data comes from node-exporter (host, Pi
+  # temperature, disks, the monitor's results), cAdvisor (containers) and mqtt-exporter (Zigbee2MQTT
+  # devices). Everything is in the host network and listens on 127.0.0.1 except Grafana, which is
+  # on the LAN (GRAFANA_PORT) like Portainer and never behind Funnel. Memory limits keep it small.
+  victoriametrics:
+    container_name: victoriametrics
     profiles: ["metrics"]
-    image: henrygd/beszel:latest
+    image: victoriametrics/victoria-metrics:stable
     restart: unless-stopped
-    mem_limit: 256m
-    ports:
-      - "${BESZEL_PORT:-8091}:8090"
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - beszel_data:/beszel_data
-      - beszel_socket:/beszel_socket
-
-  beszel-agent:
-    container_name: beszel-agent
-    profiles: ["metrics"]
-    image: henrygd/beszel-agent:latest
-    restart: unless-stopped
-    mem_limit: 128m
-    # Host network: the real interfaces and the Pi's temperature sensors
     network_mode: host
-    depends_on:
-      - beszel
+    mem_limit: 384m
+    command:
+      - -httpListenAddr=127.0.0.1:8428
+      - -storageDataPath=/storage
+      - -retentionPeriod=${METRICS_RETENTION:-12}
+      - -promscrape.config=/etc/metrics/scrape.yml
     environment:
       - TZ=${TZ}
-      - LISTEN=/beszel_socket/beszel.sock
-      # From the hub's "Add system" dialog (README, Trend charts); the agent needs both
-      - KEY=${BESZEL_KEY:-}
-      - TOKEN=${BESZEL_TOKEN:-}
-      - HUB_URL=http://127.0.0.1:${BESZEL_PORT:-8091}
-      # The HDD as an extra disk in the charts (mounts under /extra-filesystems)
-      - EXTRA_FILESYSTEMS=/extra-filesystems/hdd__Backup HDD
     volumes:
-      - beszel_socket:/beszel_socket
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - victoriametrics_data:/storage
+      - ./metrics/scrape.yml:/etc/metrics/scrape.yml:ro
+
+  grafana:
+    container_name: grafana
+    profiles: ["metrics"]
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 384m
+    depends_on:
+      - victoriametrics
+    environment:
+      - TZ=${TZ}
+      - GF_SERVER_HTTP_PORT=${GRAFANA_PORT:-3000}
+      # Only used when the Grafana database is created; change it in Grafana afterwards
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/home.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  node-exporter:
+    container_name: node-exporter
+    profiles: ["metrics"]
+    image: prom/node-exporter:latest
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    mem_limit: 64m
+    command:
+      - --web.listen-address=127.0.0.1:9100
+      - --path.rootfs=/host
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.loadavg
+      - --collector.filesystem
+      - --collector.netdev
+      - --collector.diskstats
+      - --collector.hwmon
+      - --collector.thermal_zone
+      - --collector.uname
+      - --collector.time
+      - --collector.stat
+      - --collector.textfile
+      - --collector.textfile.directory=/state/metrics
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($|/)
+    volumes:
+      # rslave: the HDD, when it is mounted after the container started, shows up too
       - type: bind
-        source: ${HDD_DIR}
-        target: "/extra-filesystems/hdd__Backup HDD"
+        source: /
+        target: /host
         read_only: true
         bind:
           propagation: rslave
-          create_host_path: false
+      # Results of the monitor and the backups, written by the jobs service
+      - jobs_state:/state:ro
+
+  cadvisor:
+    container_name: cadvisor
+    profiles: ["metrics"]
+    image: ghcr.io/google/cadvisor:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 192m
+    command:
+      - --listen_ip=127.0.0.1
+      - --port=9101
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service
+      - --disable_metrics=percpu,sched,tcp,udp,advtcp,referenced_memory,cpu_topology,resctrl,hugetlb,process,memory_numa,disk,diskIO
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+
+  # Zigbee2MQTT devices (state, battery, temperature, availability) as metrics
+  mqtt-exporter:
+    container_name: mqtt-exporter
+    profiles: ["metrics"]
+    image: kpetrem/mqtt-exporter:latest
+    restart: unless-stopped
+    network_mode: host
+    mem_limit: 128m
+    depends_on:
+      - mosquitto
+    environment:
+      - TZ=${TZ}
+      - MQTT_ADDRESS=127.0.0.1
+      - MQTT_PORT=1883
+      - MQTT_TOPIC=zigbee2mqtt/#
+      - MQTT_USERNAME=${MQTT_METRICS_USER:-}
+      - MQTT_PASSWORD=${MQTT_METRICS_PASSWORD:-}
+      - PROMETHEUS_ADDRESS=127.0.0.1
+      - PROMETHEUS_PORT=9344
+      - ZIGBEE2MQTT_AVAILABILITY=True
+      # A device that stays silent for a day disappears from the charts instead of freezing
+      - MQTT_METRICS_EXPIRE_SECONDS=86400
 
   # ===============================
   # Portainer (Web Docker Management)
@@ -357,10 +450,11 @@ services:
       - portainer_data:/data
 
 volumes:
-  beszel_data:
-  beszel_socket:
+  grafana_data:
+  victoriametrics_data:
   portainer_data:
   nextcloud_db:
   nextcloud_html:
   guest_exit_state:
+  jobs_state:
   tailscale_state:

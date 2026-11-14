@@ -12,8 +12,8 @@ Docker Compose stack for the home automation Raspberry Pi (arm64).
 | `nextcloud`, `nextcloud-db`, `nextcloud-redis`, `nextcloud-cron` | `nextcloud:<NEXTCLOUD_VERSION>-apache`, `mariadb`, `redis` | Nextcloud on localhost port `NEXTCLOUD_PORT` (8090), its database, a cache and file-locking service and a background job runner; see below |
 | `tailscale` | `tailscale/tailscale:stable` | Tailscale in the host network: VPN access, subnet routes, and the HTTPS address of Nextcloud (`tailscale/serve.json`) |
 | `guest-exit` | `tailscale/tailscale:stable` | Optional (profile `guest-exit`): a Tailscale exit node for one guest that cannot reach any private network; see below |
-| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, the HDD health check and the weekly Nextcloud update check; see below |
-| `beszel`, `beszel-agent` | `henrygd/beszel`, `henrygd/beszel-agent` | Optional (profile `metrics`): trend charts of CPU, memory, temperature, disks and containers, UI on port `BESZEL_PORT` (8091); see below |
+| `jobs` | built from `jobs/Dockerfile` | Cron in a container: the daily state and Nextcloud backups onto the HDD, disk health, monitoring with email alerts, guest exit traffic and the weekly Nextcloud update check; see below |
+| `grafana`, `victoriametrics`, `node-exporter`, `cadvisor`, `mqtt-exporter` | `grafana-oss`, `victoria-metrics`, `prom/node-exporter`, `cadvisor`, `kpetrem/mqtt-exporter` | Optional (profile `metrics`): one dashboard with trend charts of the Pi, the containers, the Zigbee devices and the monitor's results, on port `GRAFANA_PORT` (3000); see below |
 | `watchtower` | `containrrr/watchtower` | Updates the containers once per day and removes old images |
 | `portainer` | `portainer/portainer-ce:latest` | Docker web UI on port 9000 |
 
@@ -104,8 +104,11 @@ The `jobs` service replaces the root crontab on the host. Its `jobs/crontab` has
 | --- | --- |
 | 03:30 daily | `jobs/backup-state.sh`: home-config's `backup-state.sh` onto the HDD, keeping the newest 7 archives; refuses to run when the HDD is not mounted |
 | 04:00 daily | `jobs/backup-nextcloud.sh`: Nextcloud backup into a restic repository on the HDD (below) |
-| 07:30 daily | `jobs/check-hdd-health.sh`: SMART status of the HDD |
-| Sunday 02:00, 1st of the month 05:00 | `jobs/check-hdd-health.sh short` and `long`: SMART self-tests; the next daily check reads their result |
+| 07:30 daily | `jobs/check-disk-health.sh`: SMART status of the HDD and the SSD |
+| Sunday 02:00, 1st of the month 05:00 | `jobs/check-disk-health.sh short` and `long`: SMART self-tests; the next daily check reads their result |
+| every 5 minutes | `jobs/monitor.sh`: containers, service ports, Nextcloud, Tailscale, free space, Pi supply voltage and temperature, age of the backups (below) |
+| 23:55 daily | `jobs/guest-exit-usage.sh`: traffic of the guest exit node (below) |
+| Monday 08:00 | `jobs/weekly-report.sh`: email with open problems, free space, newest backups and guest traffic |
 | Monday 09:00 | `scripts/check-nextcloud-update.sh`: a Nextcloud notification for `NEXTCLOUD_NOTIFY_USER`; no check when it is empty |
 
 The container gets the service data (`DATA_DIR`), the Nextcloud data directory (read-only), the HDD,
@@ -114,9 +117,30 @@ device node (`HDD_DEVICE`) and the Docker socket. Output goes to the container l
 `docker logs jobs`. To run a job by hand: `docker exec jobs /jobs/backup-state.sh`. The job scripts
 are baked into the image, so `deploy.sh` rebuilds it (`docker compose up -d --build`).
 
-When a backup fails or the HDD looks unhealthy (SMART verdict, reallocated or pending sectors,
-temperature, self-test errors), the job sends a Nextcloud notification to `NEXTCLOUD_NOTIFY_USER`
-(none if it is empty; the container log has it either way).
+### Alerts and monitoring
+
+An alert is an email (`ALERT_*` in `docker/.env`: an SMTP server and an app password of the sending
+account, and the recipient) plus a Nextcloud notification for `NEXTCLOUD_NOTIFY_USER`, and always a
+line in `docker logs jobs`. Email is the main channel because it does not depend on Nextcloud or
+the Pi's services being up; each channel is skipped when its settings are empty. The jobs raise
+one when a backup fails, a disk looks unhealthy (SMART verdict, reallocated or pending sectors,
+temperature, self-test errors) or the monitor finds a problem.
+
+`jobs/monitor.sh` keeps the state of every check in the `jobs_state` volume. A problem is reported
+after `MONITOR_FAIL_AFTER` (2) failing runs in a row, repeated daily while it lasts, and a recovery
+is reported once. It checks that every container of the Compose project runs and is not unhealthy,
+that the service ports in `MONITOR_PORTS` answer (the `jobs` container is in the host network for
+this; adjust the Homebridge UI port if it is not 8581), Nextcloud's status, Tailscale, free space
+(90%) of the system disk, the Nextcloud data and the HDD, the Pi's under-voltage and throttling
+flags and CPU temperature, and twice a day the age of the state backup and of the newest Nextcloud
+snapshot (not more often: reading the HDD wakes it). A Pi that is off cannot send an alert; that
+needs a check from outside (for example a heartbeat service).
+
+`jobs/guest-exit-usage.sh` reads the byte counters of the guest exit node's `tailscale0` interface
+once a day and appends the difference to `usage.csv` in the `jobs_state` volume (`docker exec jobs cat
+/state/guest-exit/usage.csv`: date, bytes received, bytes sent). The Monday report sums the last 7
+days and the month. `GUEST_EXIT_MONTHLY_LIMIT_GB` raises an alert once a month when the traffic
+passes it; nothing is limited.
 
 ### Nextcloud backup
 
@@ -224,30 +248,46 @@ What it cannot do: limit the guest to certain sites (an exit node forwards every
 that his traffic comes from this house. His traffic uses this house's upload bandwidth. To stop
 it, remove the share in the admin console or run `docker compose stop guest-exit`.
 
-## Trend charts
+## Dashboard and trend charts
 
-The optional `beszel` and `beszel-agent` services (profile `metrics`) draw history charts: CPU,
-load, memory, the Pi's temperature, network, the disks (system disk and the HDD) and the CPU,
-memory and network use of every container, including `guest-exit`, so the guest's traffic shows
-up as the network chart of that container. Beszel was chosen because it is small (a few tens of
-MB of memory, one SQLite file); Prometheus, Grafana and node-exporter would cost more than the
-Pi should spare next to the lights and shutters. The history is thinned out automatically (about a
-day at one-minute resolution, a month at coarse resolution), so the `beszel_data` volume stays
-small. Charts are not alerts: alerting stays with the `jobs` monitor.
+The optional `metrics` profile adds one dashboard, "Home" in Grafana, with history:
 
-The hub listens on `BESZEL_PORT` on the LAN, like Portainer; from outside, use it through
-Tailscale. It is not part of the Funnel configuration and must never be published there.
+- Overview: open problems, temperature, memory, system disk and HDD space, age of the newest
+  backups. "Checks" lists every check of the `jobs` monitor (containers, service ports, Nextcloud,
+  Tailscale, disks, Pi power) as OK or PROBLEM.
+- Zigbee devices: how many are online or offline, which ones are offline, battery and sensor
+  temperatures (from Zigbee2MQTT through `mqtt-exporter`).
+- The Pi: CPU, load, temperature, memory, network, and disk space over time (the disk growth).
+- Containers: CPU, memory and network of each container (`cadvisor`), including the guest exit
+  node, plus its daily and monthly traffic from `jobs/guest-exit-usage.sh`.
 
-Setup, once:
+History goes into VictoriaMetrics (`METRICS_RETENTION` months, 12 by default, a few hundred MB).
+The profile needs roughly 0.5 GB of memory (the services have memory limits, so a runaway one is
+killed instead of starving the lights and shutters); look at the "Memory per container" chart after
+the first days and turn the profile off if it is too much. Grafana is for looking: alerts stay with
+the `jobs` monitor (email). Lights and shutters are controlled in Apple Home; the dashboard only
+shows whether the devices are online and their battery.
 
-1. Add `COMPOSE_PROFILES=metrics` to `docker/.env` (`guest-exit,metrics` with the guest exit
-   node) and start only the hub: `docker compose up -d beszel` (the agent would refuse to start
-   without a key).
-2. Open `http://<pi>:8091`, create the admin account (the first account is the admin), choose
-   Add system and copy the public key and the token. Do not add the system there; the agent
-   below connects through the unix socket at `/beszel_socket/beszel.sock`: use that path as Host
-   / IP and any name.
-3. Put `BESZEL_KEY` and `BESZEL_TOKEN` into `docker/.env` and run `docker compose up -d`.
+How it hangs together: `node-exporter` reads the host, and the textfile written by
+`jobs/export-metrics.sh` (every minute: the monitor's state, the backup times, the guest traffic;
+it never reads the HDD). `cadvisor` reads the containers and `mqtt-exporter` subscribes to
+`zigbee2mqtt/#` on Mosquitto. `victoriametrics` collects them every 30 seconds (`metrics/scrape.yml`)
+and Grafana reads from it. The data source and the dashboard are provisioned from
+`grafana/` (the dashboard is read-only in Grafana: change `grafana/dashboards/home.json` in git).
 
-Keep the admin password in a password manager. The charts and the account live in the
-`beszel_data` volume; they are not part of the state backup, and losing them only loses history.
+All of it is in the host network and listens on 127.0.0.1, except Grafana: it is on the LAN on
+`GRAFANA_PORT`, like Portainer, and is reached from outside through Tailscale. It is not part of the
+Funnel configuration and must never be published there.
+
+Setup:
+
+1. Set `COMPOSE_PROFILES=metrics` (`guest-exit,metrics` with the guest exit node) and
+   `GRAFANA_ADMIN_PASSWORD` in `docker/.env`, then `docker compose up -d --build` (`deploy.sh`
+   does it; the `jobs` image has a new script).
+2. Open `http://<pi>:3000`, log in as `admin` and open the dashboard "Home". The password only
+   applies the first time Grafana starts; afterwards change it in Grafana.
+3. If Mosquitto needs a login, set `MQTT_METRICS_USER` and `MQTT_METRICS_PASSWORD`.
+
+If the container charts are empty, the kernel's memory cgroup may be off (on Raspberry Pi OS:
+`cgroup_enable=memory cgroup_memory=1` in `cmdline.txt`, then a reboot; this restarts everything,
+so plan it). The history is not part of the state backup; losing it only loses the charts.
