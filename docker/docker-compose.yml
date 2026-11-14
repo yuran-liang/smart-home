@@ -91,14 +91,27 @@ services:
   # ===============================
   # Not updated by Watchtower: Nextcloud upgrades one major version at a time. Change
   # NEXTCLOUD_VERSION in .env and run `docker compose up -d nextcloud` for each step.
+  # Cache and file locking for Nextcloud; no published port, reachable only from the stack
+  nextcloud-redis:
+    container_name: nextcloud-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    environment:
+      - TZ=${TZ}
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
   nextcloud-db:
     container_name: nextcloud-db
-    image: mariadb:${NEXTCLOUD_DB_VERSION:-10.6}
+    image: mariadb:${NEXTCLOUD_DB_VERSION:-10.11}
     restart: unless-stopped
     command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
     environment:
       - TZ=${TZ}
       - MARIADB_ROOT_PASSWORD=${NEXTCLOUD_DB_ROOT_PASSWORD:?set NEXTCLOUD_DB_ROOT_PASSWORD in .env}
+      # Upgrade the system tables when the data directory comes from an older major version
+      - MARIADB_AUTO_UPGRADE=1
       - MARIADB_DATABASE=nextclouddb
       - MARIADB_USER=nextcloud
       - MARIADB_PASSWORD=${NEXTCLOUD_DB_PASSWORD:?set NEXTCLOUD_DB_PASSWORD in .env}
@@ -113,6 +126,7 @@ services:
     restart: unless-stopped
     depends_on:
       - nextcloud-db
+      - nextcloud-redis
     ports:
       # Localhost only: reached through `tailscale serve` (HTTPS), not directly from the LAN
       - "127.0.0.1:${NEXTCLOUD_PORT:-8090}:80"
@@ -129,6 +143,8 @@ services:
       - nextcloud_html:/var/www/html
       # Same path as the datadirectory in config.php
       - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud/data}:/var/nextcloud/data
+      # HSTS header; the address is HTTPS only
+      - ./nextcloud/hsts.conf:/etc/apache2/conf-enabled/hsts.conf:ro
     labels:
       - com.centurylinklabs.watchtower.enable=false
 
@@ -139,6 +155,7 @@ services:
     restart: unless-stopped
     depends_on:
       - nextcloud
+      - nextcloud-redis
     entrypoint: /cron.sh
     environment:
       - TZ=${TZ}
