@@ -104,6 +104,17 @@ if [ "$(get_env SAMBA_PASSWORD)" = change-me ]; then
     set_env SAMBA_PASSWORD "$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
     echo "Generated SAMBA_PASSWORD in $ENV_FILE."
 fi
+# Nextcloud: random database passwords, and the data directory owned by www-data (uid 33), which is
+# the user inside the container. Without these, the stack would start an empty Nextcloud that anyone
+# who reaches it can set up.
+for key in NEXTCLOUD_DB_PASSWORD NEXTCLOUD_DB_ROOT_PASSWORD; do
+    if [ "$(get_env "$key")" = change-me ]; then
+        set_env "$key" "$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
+        echo "Generated $key in $ENV_FILE."
+    fi
+done
+nextcloud_data=$(get_env NEXTCLOUD_DATA_DIR)
+sudo install -d -o 33 -g 33 -m 750 "${nextcloud_data:-/var/nextcloud/data}"
 
 echo "==> HDD"
 if [ -n "$HDD_UUID" ]; then
