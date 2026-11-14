@@ -67,7 +67,7 @@ flowchart LR
 |---|---|---|
 | [`docker/`](docker) | Docker Compose stack for the Pi: Mosquitto, Zigbee2MQTT, Homebridge, Node-RED, Samba, Watchtower, Portainer | Docker Compose |
 | [`sensor/`](sensor) | ESP8266 firmware: reads a DHT22 every 60 s and publishes temperature and humidity via MQTT; WebSocket status page and OTA updates. Not deployed at the moment | C++, PlatformIO, Arduino |
-| [`scripts/`](scripts) | `install.sh`: sets up a fresh Pi; `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
+| [`scripts/`](scripts) | `install.sh`: sets up a fresh Pi; `clone-to-ssd.sh`: copies a system booted from an SD card onto an SSD; `restore-nextcloud.sh`: restores Nextcloud from a backup and upgrades it; `verify.sh`: health check of the whole stack; `check-nextcloud-update.sh`: weekly check for a newer Nextcloud image; `deploy.sh`: deploys the pushed state of this repository and the service configs to the Pi | Bash |
 | [`.github/workflows/`](.github/workflows) | CI: validates the Compose file, lints the shell scripts and builds the sensor firmware | GitHub Actions |
 
 `docker/` and `sensor/` have their own READMEs with setup details.

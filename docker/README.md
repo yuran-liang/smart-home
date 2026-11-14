@@ -91,3 +91,23 @@ Watchtower leaves these containers alone: Nextcloud can only be upgraded one maj
 time. Set `NEXTCLOUD_VERSION` to the next major version, run `docker compose up -d nextcloud
 nextcloud-cron`, wait for the container to finish upgrading (`docker logs nextcloud`), check
 `occ status`, and repeat. Minor and patch updates come with `docker compose pull nextcloud`.
+
+## Rebuilding a Pi
+
+Only the physical steps are manual: flash an SD card, swap cards, power cycle. The rest is scripted
+(all in `scripts/`, run on the Pi as the normal user):
+
+1. Boot a spare SD card with Raspberry Pi OS (64-bit), SSH key and sudo set up, the SSD attached.
+2. `TARGET=/dev/sda CONFIRM=/dev/sda scripts/clone-to-ssd.sh` copies that system onto the SSD, fixes
+   its identifiers and grows the root partition. `HOSTKEYS_DIR=<dir with the old ssh_host_* files>`
+   keeps the host identity, so SSH clients do not warn. Shut down, remove the SD card, power on.
+3. `HDD_UUID=<uuid> STATE_ARCHIVE=<state-*.tgz> NEXTCLOUD_NOTIFY_USER=<admin> scripts/install.sh`
+   with home-config cloned next to this repository (see `install.sh` for all options).
+4. `BACKUP_DIR=<dir> NEXTCLOUD_HOST=<host>.<tailnet>.ts.net scripts/restore-nextcloud.sh` restores
+   Nextcloud and upgrades it one major version at a time, with a database dump before each step.
+5. `scripts/verify.sh` checks the services, the dongle, the HDD, Nextcloud, Tailscale and the age of
+   the newest state backup. It changes nothing and exits non-zero on a failed check.
+
+`scripts/check-nextcloud-update.sh` (weekly in root's crontab when `NEXTCLOUD_NOTIFY_USER` was set
+for `install.sh`) compares the running image with Docker Hub and sends a Nextcloud notification to
+that user when a newer image of the running major version, or the next major version, exists.
